@@ -22,8 +22,8 @@ import android.widget.TextView;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.LocaleController;
-import org.telegram.messenger.MediaController;
 import org.telegram.messenger.R;
+import org.telegram.messenger.SharedConfig;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.ActionBarMenu;
 import org.telegram.ui.ActionBar.ActionBarMenuItem;
@@ -67,6 +67,8 @@ public class PhotoPickerSearchActivity extends BaseFragment {
     private int selectPhotoType;
     private ChatActivity chatActivity;
 
+    private boolean swipeBackEnabled = true;
+
     private final static int search_button = 0;
 
     private Paint backgroundPaint = new Paint();
@@ -82,11 +84,11 @@ public class PhotoPickerSearchActivity extends BaseFragment {
         return t * t * t * t * t + 1.0F;
     };
 
-    public PhotoPickerSearchActivity(HashMap<Object, Object> selectedPhotos, ArrayList<Object> selectedPhotosOrder, ArrayList<MediaController.SearchImage> recentImages, int selectPhotoType, boolean allowCaption, ChatActivity chatActivity) {
+    public PhotoPickerSearchActivity(HashMap<Object, Object> selectedPhotos, ArrayList<Object> selectedPhotosOrder, int selectPhotoType, boolean allowCaption, ChatActivity chatActivity) {
         super();
 
-        imagesSearch = new PhotoPickerActivity(0, null, selectedPhotos, selectedPhotosOrder, recentImages, selectPhotoType, allowCaption, chatActivity);
-        gifsSearch = new PhotoPickerActivity(1, null, selectedPhotos, selectedPhotosOrder, recentImages, selectPhotoType, allowCaption, chatActivity);
+        imagesSearch = new PhotoPickerActivity(0, null, selectedPhotos, selectedPhotosOrder, selectPhotoType, allowCaption, chatActivity);
+        gifsSearch = new PhotoPickerActivity(1, null, selectedPhotos, selectedPhotosOrder, selectPhotoType, allowCaption, chatActivity);
     }
 
     @Override
@@ -194,7 +196,7 @@ public class PhotoPickerSearchActivity extends BaseFragment {
         maximumVelocity = configuration.getScaledMaximumFlingVelocity();
 
         SizeNotifierFrameLayout sizeNotifierFrameLayout;
-        fragmentView = sizeNotifierFrameLayout = new SizeNotifierFrameLayout(context) {
+        fragmentView = sizeNotifierFrameLayout = new SizeNotifierFrameLayout(context, SharedConfig.smoothKeyboard) {
 
             private int startedTrackingPointerId;
             private boolean startedTracking;
@@ -240,7 +242,7 @@ public class PhotoPickerSearchActivity extends BaseFragment {
                 setMeasuredDimension(widthSize, heightSize);
 
                 measureChildWithMargins(actionBar, widthMeasureSpec, 0, heightMeasureSpec, 0);
-                int keyboardSize = getKeyboardHeight();
+                int keyboardSize = SharedConfig.smoothKeyboard ? 0 : getKeyboardHeight();
                 if (keyboardSize <= AndroidUtilities.dp(20)) {
                     if (!AndroidUtilities.isInMultiwindow) {
                         heightSize -= commentTextView.getEmojiPadding();
@@ -290,7 +292,8 @@ public class PhotoPickerSearchActivity extends BaseFragment {
             protected void onLayout(boolean changed, int l, int t, int r, int b) {
                 final int count = getChildCount();
 
-                int paddingBottom = getKeyboardHeight() <= AndroidUtilities.dp(20) && !AndroidUtilities.isInMultiwindow && !AndroidUtilities.isTablet() ? commentTextView.getEmojiPadding() : 0;
+                int keyboardSize = SharedConfig.smoothKeyboard ? 0 : getKeyboardHeight();
+                int paddingBottom = keyboardSize <= AndroidUtilities.dp(20) && !AndroidUtilities.isInMultiwindow && !AndroidUtilities.isTablet() ? commentTextView.getEmojiPadding() : 0;
                 setBottomClip(paddingBottom);
 
                 for (int i = 0; i < count; i++) {
@@ -344,7 +347,7 @@ public class PhotoPickerSearchActivity extends BaseFragment {
                         if (AndroidUtilities.isTablet()) {
                             childTop = getMeasuredHeight() - child.getMeasuredHeight();
                         } else {
-                            childTop = getMeasuredHeight() + getKeyboardHeight() - child.getMeasuredHeight();
+                            childTop = getMeasuredHeight() + keyboardSize - child.getMeasuredHeight();
                         }
                     }
                     child.layout(childLeft, childTop, childLeft + width, childTop + height);
@@ -647,8 +650,8 @@ public class PhotoPickerSearchActivity extends BaseFragment {
 
         sizeNotifierFrameLayout.addView(imagesSearch.shadow, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 3, Gravity.BOTTOM | Gravity.LEFT, 0, 0, 0, 48));
         sizeNotifierFrameLayout.addView(imagesSearch.frameLayout2, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 48, Gravity.LEFT | Gravity.BOTTOM));
-        sizeNotifierFrameLayout.addView(imagesSearch.writeButtonContainer, LayoutHelper.createFrame(60, 60, Gravity.RIGHT | Gravity.BOTTOM, 0, 0, 6, 10));
-        sizeNotifierFrameLayout.addView(imagesSearch.selectedCountView, LayoutHelper.createFrame(42, 24, Gravity.RIGHT | Gravity.BOTTOM, 0, 0, -8, 9));
+        sizeNotifierFrameLayout.addView(imagesSearch.writeButtonContainer, LayoutHelper.createFrame(60, 60, Gravity.RIGHT | Gravity.BOTTOM, 0, 0, 12, 10));
+        sizeNotifierFrameLayout.addView(imagesSearch.selectedCountView, LayoutHelper.createFrame(42, 24, Gravity.RIGHT | Gravity.BOTTOM, 0, 0, -2, 9));
 
         updateTabs();
         switchToCurrentSelectedMode(false);
@@ -662,7 +665,7 @@ public class PhotoPickerSearchActivity extends BaseFragment {
         super.onResume();
         if (searchItem != null) {
             searchItem.openSearch(true);
-            getParentActivity().getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+            getParentActivity().getWindow().setSoftInputMode(SharedConfig.smoothKeyboard ? WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN : WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         }
         if (imagesSearch != null) {
             imagesSearch.onResume();
@@ -687,6 +690,11 @@ public class PhotoPickerSearchActivity extends BaseFragment {
         if (gifsSearch != null) {
             gifsSearch.onPause();
         }
+    }
+
+    @Override
+    public boolean isSwipeBackEnabled(MotionEvent event) {
+        return swipeBackEnabled;
     }
 
     @Override
@@ -719,9 +727,39 @@ public class PhotoPickerSearchActivity extends BaseFragment {
         fragmentView.invalidate();
     }
 
+    private void searchText(String text) {
+        searchItem.getSearchField().setText(text);
+        searchItem.getSearchField().setSelection(text.length());
+        actionBar.onSearchPressed();
+    }
+
     public void setDelegate(PhotoPickerActivity.PhotoPickerActivityDelegate delegate) {
         imagesSearch.setDelegate(delegate);
         gifsSearch.setDelegate(delegate);
+        imagesSearch.setSearchDelegate(new PhotoPickerActivity.PhotoPickerActivitySearchDelegate() {
+            @Override
+            public void shouldSearchText(String text) {
+                searchText(text);
+            }
+
+            @Override
+            public void shouldClearRecentSearch() {
+                imagesSearch.clearRecentSearch();
+                gifsSearch.clearRecentSearch();
+            }
+        });
+        gifsSearch.setSearchDelegate(new PhotoPickerActivity.PhotoPickerActivitySearchDelegate() {
+            @Override
+            public void shouldSearchText(String text) {
+                searchText(text);
+            }
+
+            @Override
+            public void shouldClearRecentSearch() {
+                imagesSearch.clearRecentSearch();
+                gifsSearch.clearRecentSearch();
+            }
+        });
     }
 
     public void setMaxSelectedPhotos(int value, boolean order) {
@@ -733,8 +771,8 @@ public class PhotoPickerSearchActivity extends BaseFragment {
         if (scrollSlidingTextTabStrip == null) {
             return;
         }
-        scrollSlidingTextTabStrip.addTextTab(0, LocaleController.getString("ImagesTab", R.string.ImagesTab));
-        scrollSlidingTextTabStrip.addTextTab(1, LocaleController.getString("GifsTab", R.string.GifsTab));
+        scrollSlidingTextTabStrip.addTextTab(0, LocaleController.getString("ImagesTab2", R.string.ImagesTab2));
+        scrollSlidingTextTabStrip.addTextTab(1, LocaleController.getString("GifsTab2", R.string.GifsTab2));
         scrollSlidingTextTabStrip.setVisibility(View.VISIBLE);
         actionBar.setExtraHeight(AndroidUtilities.dp(44));
         int id = scrollSlidingTextTabStrip.getCurrentTabId();

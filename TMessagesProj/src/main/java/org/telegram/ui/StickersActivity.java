@@ -16,8 +16,10 @@ import android.text.Spanned;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.Toast;
 
+import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.MediaDataController;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.MessagesController;
@@ -33,6 +35,7 @@ import org.telegram.ui.ActionBar.AlertDialog;
 import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.ActionBar.ThemeDescription;
+import org.telegram.ui.Cells.RadioColorCell;
 import org.telegram.ui.Cells.ShadowSectionCell;
 import org.telegram.ui.Cells.StickerSetCell;
 import org.telegram.ui.Cells.TextCheckCell;
@@ -205,17 +208,35 @@ public class StickersActivity extends BaseFragment implements NotificationCenter
             } else if (position == masksRow) {
                 presentFragment(new StickersActivity(MediaDataController.TYPE_MASK));
             } else if (position == suggestRow) {
+                if (getParentActivity() == null) {
+                    return;
+                }
                 AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
                 builder.setTitle(LocaleController.getString("SuggestStickers", R.string.SuggestStickers));
-                CharSequence[] items = new CharSequence[]{
+                String[] items = new String[]{
                         LocaleController.getString("SuggestStickersAll", R.string.SuggestStickersAll),
                         LocaleController.getString("SuggestStickersInstalled", R.string.SuggestStickersInstalled),
                         LocaleController.getString("SuggestStickersNone", R.string.SuggestStickersNone),
                 };
-                builder.setItems(items, (dialog, which) -> {
-                    SharedConfig.setSuggestStickers(which);
-                    listAdapter.notifyItemChanged(suggestRow);
-                });
+
+                final LinearLayout linearLayout = new LinearLayout(getParentActivity());
+                linearLayout.setOrientation(LinearLayout.VERTICAL);
+                builder.setView(linearLayout);
+
+                for (int a = 0; a < items.length; a++) {
+                    RadioColorCell cell = new RadioColorCell(getParentActivity());
+                    cell.setPadding(AndroidUtilities.dp(4), 0, AndroidUtilities.dp(4), 0);
+                    cell.setTag(a);
+                    cell.setCheckColor(Theme.getColor(Theme.key_radioBackground), Theme.getColor(Theme.key_dialogRadioBackgroundChecked));
+                    cell.setTextAndValue(items[a], SharedConfig.suggestStickers == a);
+                    linearLayout.addView(cell);
+                    cell.setOnClickListener(v -> {
+                        Integer which = (Integer) v.getTag();
+                        SharedConfig.setSuggestStickers(which);
+                        listAdapter.notifyItemChanged(suggestRow);
+                        builder.getDismissRunnable().run();
+                    });
+                }
                 showDialog(builder.create());
             } else if (position == loopRow) {
                 SharedConfig.toggleLoopStickers();
@@ -382,7 +403,7 @@ public class StickersActivity extends BaseFragment implements NotificationCenter
                                 URLSpanNoUnderline spanNoUnderline = new URLSpanNoUnderline("@stickers") {
                                     @Override
                                     public void onClick(View widget) {
-                                        MessagesController.getInstance(currentAccount).openByUserName("stickers", StickersActivity.this, 1);
+                                        MessagesController.getInstance(currentAccount).openByUserName("stickers", StickersActivity.this, 3);
                                     }
                                 };
                                 stringBuilder.setSpan(spanNoUnderline, index, index + botName.length(), Spanned.SPAN_INCLUSIVE_INCLUSIVE);

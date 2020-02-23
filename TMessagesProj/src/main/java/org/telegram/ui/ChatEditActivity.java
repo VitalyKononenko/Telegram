@@ -43,6 +43,7 @@ import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.MessagesStorage;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
+import org.telegram.messenger.SharedConfig;
 import org.telegram.messenger.UserConfig;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.ActionBar;
@@ -229,7 +230,7 @@ public class ChatEditActivity extends BaseFragment implements ImageUpdater.Image
             }
         });
 
-        SizeNotifierFrameLayout sizeNotifierFrameLayout = new SizeNotifierFrameLayout(context) {
+        SizeNotifierFrameLayout sizeNotifierFrameLayout = new SizeNotifierFrameLayout(context, SharedConfig.smoothKeyboard) {
 
             private boolean ignoreLayout;
 
@@ -243,7 +244,7 @@ public class ChatEditActivity extends BaseFragment implements ImageUpdater.Image
 
                 measureChildWithMargins(actionBar, widthMeasureSpec, 0, heightMeasureSpec, 0);
 
-                int keyboardSize = getKeyboardHeight();
+                int keyboardSize = SharedConfig.smoothKeyboard ? 0 : getKeyboardHeight();
                 if (keyboardSize > AndroidUtilities.dp(20)) {
                     ignoreLayout = true;
                     nameTextView.hideEmojiView();
@@ -276,7 +277,8 @@ public class ChatEditActivity extends BaseFragment implements ImageUpdater.Image
             protected void onLayout(boolean changed, int l, int t, int r, int b) {
                 final int count = getChildCount();
 
-                int paddingBottom = getKeyboardHeight() <= AndroidUtilities.dp(20) && !AndroidUtilities.isInMultiwindow && !AndroidUtilities.isTablet() ? nameTextView.getEmojiPadding() : 0;
+                int keyboardSize = SharedConfig.smoothKeyboard ? 0 : getKeyboardHeight();
+                int paddingBottom = keyboardSize <= AndroidUtilities.dp(20) && !AndroidUtilities.isInMultiwindow && !AndroidUtilities.isTablet() ? nameTextView.getEmojiPadding() : 0;
                 setBottomClip(paddingBottom);
 
                 for (int i = 0; i < count; i++) {
@@ -330,7 +332,7 @@ public class ChatEditActivity extends BaseFragment implements ImageUpdater.Image
                         if (AndroidUtilities.isTablet()) {
                             childTop = getMeasuredHeight() - child.getMeasuredHeight();
                         } else {
-                            childTop = getMeasuredHeight() + getKeyboardHeight() - child.getMeasuredHeight();
+                            childTop = getMeasuredHeight() + keyboardSize - child.getMeasuredHeight();
                         }
                     }
                     child.layout(childLeft, childTop, childLeft + width, childTop + height);
@@ -453,7 +455,7 @@ public class ChatEditActivity extends BaseFragment implements ImageUpdater.Image
         nameTextView.setEnabled(ChatObject.canChangeChatInfo(currentChat));
         nameTextView.setFocusable(nameTextView.isEnabled());
         InputFilter[] inputFilters = new InputFilter[1];
-        inputFilters[0] = new InputFilter.LengthFilter(100);
+        inputFilters[0] = new InputFilter.LengthFilter(128);
         nameTextView.setFilters(inputFilters);
         frameLayout.addView(nameTextView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER_VERTICAL, LocaleController.isRTL ? 5 : 96, 0, LocaleController.isRTL ? 96 : 5, 0));
 
@@ -884,6 +886,10 @@ public class ChatEditActivity extends BaseFragment implements ImageUpdater.Image
         donePressed = true;
         if (!ChatObject.isChannel(currentChat) && !historyHidden) {
             MessagesController.getInstance(currentAccount).convertToMegaGroup(getParentActivity(), chatId, this, param -> {
+                if (param == 0) {
+                    donePressed = false;
+                    return;
+                }
                 chatId = param;
                 currentChat = MessagesController.getInstance(currentAccount).getChat(param);
                 donePressed = false;

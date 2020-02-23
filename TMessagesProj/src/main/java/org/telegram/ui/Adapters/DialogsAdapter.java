@@ -43,6 +43,7 @@ import org.telegram.ui.Cells.HeaderCell;
 import org.telegram.ui.Cells.LoadingCell;
 import org.telegram.ui.Cells.ShadowSectionCell;
 import org.telegram.ui.Cells.UserCell;
+import org.telegram.ui.Components.PullForegroundDrawable;
 import org.telegram.ui.Components.CombinedDrawable;
 import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.RecyclerListView;
@@ -72,6 +73,7 @@ public class DialogsAdapter extends RecyclerListView.SelectionAdapter {
     private boolean showArchiveHint;
     private boolean isReordering;
     private long lastSortTime;
+    private PullForegroundDrawable pullForegroundDrawable;
 
     public DialogsAdapter(Context context, int type, int folder, boolean onlySelect) {
         mContext = context;
@@ -218,10 +220,10 @@ public class DialogsAdapter extends RecyclerListView.SelectionAdapter {
     }
 
     public void sortOnlineContacts(boolean notify) {
-        if (onlineContacts == null || notify && (SystemClock.uptimeMillis() - lastSortTime) < 2000) {
+        if (onlineContacts == null || notify && (SystemClock.elapsedRealtime() - lastSortTime) < 2000) {
             return;
         }
-        lastSortTime = SystemClock.uptimeMillis();
+        lastSortTime = SystemClock.elapsedRealtime();
         try {
             int currentTime = ConnectionsManager.getInstance(currentAccount).getCurrentTime();
             MessagesController messagesController = MessagesController.getInstance(currentAccount);
@@ -310,7 +312,9 @@ public class DialogsAdapter extends RecyclerListView.SelectionAdapter {
         View view;
         switch (viewType) {
             case 0:
-                view = new DialogCell(mContext, true, false);
+                DialogCell dialogCell = new DialogCell(mContext, true, false);
+                dialogCell.setArchivedPullAnimation(pullForegroundDrawable);
+                view = dialogCell;
                 break;
             case 1:
                 view = new LoadingCell(mContext);
@@ -518,5 +522,9 @@ public class DialogsAdapter extends RecyclerListView.SelectionAdapter {
         toDialog.pinnedNum = oldNum;
         Collections.swap(dialogs, fromIndex, toIndex);
         super.notifyItemMoved(fromPosition, toPosition);
+    }
+
+    public void setArchivedPullDrawable(PullForegroundDrawable drawable) {
+        pullForegroundDrawable = drawable;
     }
 }

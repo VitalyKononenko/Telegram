@@ -30,7 +30,7 @@ public class FileRefController extends BaseController {
     private HashMap<String, CachedResult> responseCache = new HashMap<>();
     private HashMap<TLRPC.TL_messages_sendMultiMedia, Object[]> multiMediaCache = new HashMap<>();
 
-    private long lastCleanupTime = SystemClock.uptimeMillis();
+    private long lastCleanupTime = SystemClock.elapsedRealtime();
 
     private static volatile FileRefController[] Instance = new FileRefController[UserConfig.MAX_ACCOUNT_COUNT];
 
@@ -769,15 +769,15 @@ public class FileRefController extends BaseController {
     }
 
     private void cleanupCache() {
-        if (Math.abs(SystemClock.uptimeMillis() - lastCleanupTime) < 60 * 10 * 1000) {
+        if (Math.abs(SystemClock.elapsedRealtime() - lastCleanupTime) < 60 * 10 * 1000) {
             return;
         }
-        lastCleanupTime = SystemClock.uptimeMillis();
+        lastCleanupTime = SystemClock.elapsedRealtime();
 
         ArrayList<String> keysToDelete = null;
         for (HashMap.Entry<String, CachedResult> entry : responseCache.entrySet()) {
             CachedResult cachedResult = entry.getValue();
-            if (Math.abs(SystemClock.uptimeMillis() - cachedResult.firstQueryTime) >= 60 * 10 * 1000) {
+            if (Math.abs(SystemClock.elapsedRealtime() - cachedResult.firstQueryTime) >= 60 * 10 * 1000) {
                 if (keysToDelete == null) {
                     keysToDelete = new ArrayList<>();
                 }
@@ -793,7 +793,7 @@ public class FileRefController extends BaseController {
 
     private CachedResult getCachedResponse(String key) {
         CachedResult cachedResult = responseCache.get(key);
-        if (cachedResult != null && Math.abs(SystemClock.uptimeMillis() - cachedResult.firstQueryTime) >= 60 * 10 * 1000) {
+        if (cachedResult != null && Math.abs(SystemClock.elapsedRealtime() - cachedResult.firstQueryTime) >= 60 * 10 * 1000) {
             responseCache.remove(key);
             cachedResult = null;
         }
@@ -963,7 +963,18 @@ public class FileRefController extends BaseController {
         if (result != null) {
             return result;
         }
-        if (result == null && webpage.cached_page != null) {
+        if (!webpage.attributes.isEmpty()) {
+            for (int a = 0, size1 = webpage.attributes.size(); a < size1; a++) {
+                TLRPC.TL_webPageAttributeTheme attribute = webpage.attributes.get(a);
+                for (int b = 0, size2 = attribute.documents.size(); b < size2; b++) {
+                    result = getFileReference(attribute.documents.get(b), location, needReplacement, replacement);
+                    if (result != null) {
+                        return result;
+                    }
+                }
+            }
+        }
+        if (webpage.cached_page != null) {
             for (int b = 0, size2 = webpage.cached_page.documents.size(); b < size2; b++) {
                 result = getFileReference(webpage.cached_page.documents.get(b), location, needReplacement, replacement);
                 if (result != null) {

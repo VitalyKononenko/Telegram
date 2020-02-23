@@ -159,10 +159,7 @@ public class PopupNotificationActivity extends Activity implements NotificationC
         super.onCreate(savedInstanceState);
         Theme.createChatResources(this, false);
 
-        int resourceId = getResources().getIdentifier("status_bar_height", "dimen", "android");
-        if (resourceId > 0) {
-            AndroidUtilities.statusBarHeight = getResources().getDimensionPixelSize(resourceId);
-        }
+        AndroidUtilities.fillStatusBarHeight(this);
         for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
             NotificationCenter.getInstance(a).addObserver(this, NotificationCenter.appDidLogout);
             NotificationCenter.getInstance(a).addObserver(this, NotificationCenter.updateInterfaces);
@@ -180,7 +177,7 @@ public class PopupNotificationActivity extends Activity implements NotificationC
         statusDrawables[3] = new PlayingGameDrawable();
         statusDrawables[4] = new RoundStatusDrawable();
 
-        SizeNotifierFrameLayout contentView = new SizeNotifierFrameLayout(this) {
+        SizeNotifierFrameLayout contentView = new SizeNotifierFrameLayout(this, false) {
             @Override
             protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
                 int widthMode = MeasureSpec.getMode(widthMeasureSpec);
@@ -419,6 +416,11 @@ public class PopupNotificationActivity extends Activity implements NotificationC
 
             @Override
             public void onUpdateSlowModeButton(View button, boolean show, CharSequence time) {
+
+            }
+
+            @Override
+            public void onSendLongClick() {
 
             }
         });
@@ -926,7 +928,7 @@ public class PopupNotificationActivity extends Activity implements NotificationC
                 if (MessagesController.getInstance(messageObject.currentAccount).mapProvider == 2) {
                     imageView.setImage(ImageLocation.getForWebFile(WebFile.createWithGeoPoint(geoPoint, 100, 100, 15, Math.min(2, (int) Math.ceil(AndroidUtilities.density)))), null, null, null, messageObject);
                 } else {
-                    String currentUrl = AndroidUtilities.formapMapUrl(messageObject.currentAccount, lat, lon, 100, 100, true, 15);
+                    String currentUrl = AndroidUtilities.formapMapUrl(messageObject.currentAccount, lat, lon, 100, 100, true, 15, -1);
                     imageView.setImage(currentUrl, null, null);
                 }
             }

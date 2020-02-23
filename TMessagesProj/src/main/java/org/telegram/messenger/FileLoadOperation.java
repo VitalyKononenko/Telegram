@@ -50,12 +50,10 @@ public class FileLoadOperation {
 
     private static class PreloadRange {
         private int fileOffset;
-        private int start;
         private int length;
 
-        private PreloadRange(int o, int s, int l) {
+        private PreloadRange(int o, int l) {
             fileOffset = o;
-            start = s;
             length = l;
         }
     }
@@ -171,7 +169,7 @@ public class FileLoadOperation {
     public interface FileLoadOperationDelegate {
         void didFinishLoadingFile(FileLoadOperation operation, File finalFile);
         void didFailedLoadingFile(FileLoadOperation operation, int state);
-        void didChangedLoadProgress(FileLoadOperation operation, float progress);
+        void didChangedLoadProgress(FileLoadOperation operation, long uploadedSize, long totalSize);
     }
 
     public FileLoadOperation(ImageLocation imageLocation, Object parent, String extension, int size) {
@@ -230,7 +228,7 @@ public class FileLoadOperation {
             }
             allowDisordererFileSave = true;
         }
-        ungzip = imageLocation.lottieAnimation;
+        ungzip = imageLocation.imageType == FileLoader.IMAGE_TYPE_LOTTIE || imageLocation.imageType == FileLoader.IMAGE_TYPE_SVG;
         initialDatacenterId = datacenterId = imageLocation.dc_id;
         currentType = ConnectionsManager.FileTypePhoto;
         totalBytesCount = size;
@@ -297,7 +295,7 @@ public class FileLoadOperation {
                     }
                 }
             }
-            ungzip = "application/x-tgsticker".equals(documentLocation.mime_type);
+            ungzip = "application/x-tgsticker".equals(documentLocation.mime_type) || "application/x-tgwallpattern".equals(documentLocation.mime_type);
             totalBytesCount = documentLocation.size;
             if (key != null) {
                 int toAdd = 0;
@@ -724,7 +722,7 @@ public class FileLoadOperation {
             cacheFileFinal = new File(storePath, fileNameFinal);
         }
         boolean finalFileExist = cacheFileFinal.exists();
-        if (finalFileExist && totalBytesCount != 0 && totalBytesCount != cacheFileFinal.length()) {
+        if (finalFileExist && (parentObject instanceof TLRPC.TL_theme || totalBytesCount != 0 && totalBytesCount != cacheFileFinal.length())) {
             cacheFileFinal.delete();
             finalFileExist = false;
         }
@@ -790,7 +788,7 @@ public class FileLoadOperation {
                             if (len - readOffset < size || size > currentDownloadChunkSize) {
                                 break;
                             }
-                            PreloadRange range = new PreloadRange(readOffset, offset, size);
+                            PreloadRange range = new PreloadRange(readOffset, size);
                             readOffset += size;
                             preloadStream.seek(readOffset);
                             if (len - readOffset < 12) {
@@ -919,7 +917,7 @@ public class FileLoadOperation {
             }
             if (!isPreloadVideoOperation && downloadedBytes != 0 && totalBytesCount > 0) {
                 copyNotLoadedRanges();
-                delegate.didChangedLoadProgress(FileLoadOperation.this, Math.min(1.0f, (float) downloadedBytes / (float) totalBytesCount));
+                delegate.didChangedLoadProgress(FileLoadOperation.this, downloadedBytes, totalBytesCount);
             }
             try {
                 fileOutputStream = new RandomAccessFile(cacheFileTemp, "rws");
@@ -1340,7 +1338,7 @@ public class FileLoadOperation {
                     if (preloadedBytesRanges == null) {
                         preloadedBytesRanges = new SparseArray<>();
                     }
-                    preloadedBytesRanges.put(requestInfo.offset, new PreloadRange(preloadStreamFileOffset, requestInfo.offset, currentBytesSize));
+                    preloadedBytesRanges.put(requestInfo.offset, new PreloadRange(preloadStreamFileOffset, currentBytesSize));
 
                     totalPreloadedBytes += currentBytesSize;
                     preloadStreamFileOffset += currentBytesSize;
@@ -1453,7 +1451,7 @@ public class FileLoadOperation {
                     }
                     if (totalBytesCount > 0 && state == stateDownloading) {
                         copyNotLoadedRanges();
-                        delegate.didChangedLoadProgress(FileLoadOperation.this, Math.min(1.0f, (float) downloadedBytes / (float) totalBytesCount));
+                        delegate.didChangedLoadProgress(FileLoadOperation.this, downloadedBytes, totalBytesCount);
                     }
                 }
 
@@ -1603,7 +1601,7 @@ public class FileLoadOperation {
     }
 
     protected void startDownloadRequest() {
-        if (paused ||
+        if (paused || reuploadingCdn ||
                 state != stateDownloading ||
                 streamPriorityStartOffset == 0 && (
                         !nextPartWasPreloaded && (requestInfos.size() + delayedRequestInfos.size() >= currentMaxDownloadRequests) ||
@@ -1695,9 +1693,6 @@ public class FileLoadOperation {
             final TLObject request;
             int connectionType = requestsCount % 2 == 0 ? ConnectionsManager.ConnectionTypeDownload : ConnectionsManager.ConnectionTypeDownload2;
             int flags = (isForceRequest ? ConnectionsManager.RequestFlagForceDownload : 0);
-            if (!(webLocation instanceof TLRPC.TL_inputWebFileGeoPointLocation)) {
-                flags |= ConnectionsManager.RequestFlagFailOnServerErrors;
-            }
             if (isCdn) {
                 TLRPC.TL_upload_getCdnFile req = new TLRPC.TL_upload_getCdnFile();
                 req.file_token = cdnToken;
@@ -1717,6 +1712,7 @@ public class FileLoadOperation {
                     req.location = location;
                     req.offset = downloadOffset;
                     req.limit = currentDownloadChunkSize;
+                    req.cdn_supported = true;
                     request = req;
                 }
             }

@@ -70,7 +70,7 @@ extern jclass jniUtilitiesClass;
 extern "C" {
 #include <openssl/sha.h>
 #include <openssl/aes.h>
-#include <openssl/modes.h>
+//#include <openssl/modes.h>
 #include <openssl/rand.h>
 }
 
@@ -101,7 +101,7 @@ void tgvoip_openssl_sha256(uint8_t* msg, size_t len, uint8_t* output){
 void tgvoip_openssl_aes_ctr_encrypt(uint8_t* inout, size_t length, uint8_t* key, uint8_t* iv, uint8_t* ecount, uint32_t* num){
 	AES_KEY akey;
 	AES_set_encrypt_key(key, 32*8, &akey);
-	CRYPTO_ctr128_encrypt(inout, inout, length, &akey, iv, ecount, num, (block128_f) AES_encrypt);
+	AES_ctr128_encrypt(inout, inout, length, &akey, iv, ecount, num);
 }
 
 void tgvoip_openssl_aes_cbc_encrypt(uint8_t* in, uint8_t* out, size_t length, uint8_t* key, uint8_t* iv){
@@ -3074,7 +3074,7 @@ static void initMachTimestart() {
 double VoIPController::GetCurrentTime(){
 #if defined(__linux__)
 	struct timespec ts;
-	clock_gettime(CLOCK_MONOTONIC, &ts);
+	clock_gettime(CLOCK_BOOTTIME, &ts);
 	return ts.tv_sec+(double)ts.tv_nsec/1000000000.0;
 #elif defined(__APPLE__)
 	static pthread_once_t token = PTHREAD_ONCE_INIT;

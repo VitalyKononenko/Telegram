@@ -38,7 +38,7 @@ public class GcmPushListenerService extends FirebaseMessagingService {
         String from = message.getFrom();
         final Map data = message.getData();
         final long time = message.getSentTime();
-        final long receiveTime = SystemClock.uptimeMillis();
+        final long receiveTime = SystemClock.elapsedRealtime();
         if (BuildVars.LOGS_ENABLED) {
             FileLog.d("GCM received data: " + data + " from: " + from);
         }
@@ -187,6 +187,12 @@ public class GcmPushListenerService extends FirebaseMessagingService {
                                     MessagesController.getInstance(accountFinal).performLogout(0);
                                 }
                             });
+                            countDownLatch.countDown();
+                            return;
+                        }
+                        case "GEO_LIVE_PENDING": {
+                            Utilities.stageQueue.postRunnable(() -> LocationController.getInstance(accountFinal).setNewLocationEndWatchTime());
+                            countDownLatch.countDown();
                             return;
                         }
                     }
@@ -225,6 +231,7 @@ public class GcmPushListenerService extends FirebaseMessagingService {
                     if (dialog_id == 0 && "ENCRYPTED_MESSAGE".equals(loc_key)) {
                         dialog_id = -(1L << 32);
                     }
+                    boolean canRelease = true;
                     if (dialog_id != 0) {
                         if ("READ_HISTORY".equals(loc_key)) {
                             int max_id = custom.getInt("max_id");
@@ -250,7 +257,6 @@ public class GcmPushListenerService extends FirebaseMessagingService {
                                 updates.add(update);
                             }
                             MessagesController.getInstance(accountFinal).processUpdateArray(updates, null, null, false, 0);
-                            countDownLatch.countDown();
                         } else if ("MESSAGE_DELETED".equals(loc_key)) {
                             String messages = custom.getString("messages");
                             String[] messagesArgs = messages.split(",");
@@ -263,6 +269,9 @@ public class GcmPushListenerService extends FirebaseMessagingService {
                             NotificationsController.getInstance(currentAccount).removeDeletedMessagesFromNotifications(deletedMessages);
 
                             MessagesController.getInstance(currentAccount).deleteMessagesByPush(dialog_id, ids, channel_id);
+                            if (BuildVars.LOGS_ENABLED) {
+                                FileLog.d("GCM received " + loc_key + " for dialogId = " + dialog_id + " mids = " + TextUtils.join(",", ids));
+                            }
                         } else if (!TextUtils.isEmpty(loc_key)) {
                             int msg_id;
                             if (custom.has("msg_id")) {
@@ -403,6 +412,11 @@ public class GcmPushListenerService extends FirebaseMessagingService {
                                         message1 = LocaleController.getString("AttachContact", R.string.AttachContact);
                                         break;
                                     }
+                                    case "MESSAGE_QUIZ": {
+                                        messageText = LocaleController.formatString("NotificationMessageQuiz2", R.string.NotificationMessageQuiz2, args[0], args[1]);
+                                        message1 = LocaleController.getString("QuizPoll", R.string.QuizPoll);
+                                        break;
+                                    }
                                     case "MESSAGE_POLL": {
                                         messageText = LocaleController.formatString("NotificationMessagePoll2", R.string.NotificationMessagePoll2, args[0], args[1]);
                                         message1 = LocaleController.getString("Poll", R.string.Poll);
@@ -503,6 +517,11 @@ public class GcmPushListenerService extends FirebaseMessagingService {
                                         message1 = LocaleController.getString("AttachContact", R.string.AttachContact);
                                         break;
                                     }
+                                    case "CHANNEL_MESSAGE_QUIZ": {
+                                        messageText = LocaleController.formatString("ChannelMessageQuiz2", R.string.ChannelMessageQuiz2, args[0], args[1]);
+                                        message1 = LocaleController.getString("QuizPoll", R.string.QuizPoll);
+                                        break;
+                                    }
                                     case "CHANNEL_MESSAGE_POLL": {
                                         messageText = LocaleController.formatString("ChannelMessagePoll2", R.string.ChannelMessagePoll2, args[0], args[1]);
                                         message1 = LocaleController.getString("Poll", R.string.Poll);
@@ -596,6 +615,11 @@ public class GcmPushListenerService extends FirebaseMessagingService {
                                     case "CHAT_MESSAGE_CONTACT": {
                                         messageText = LocaleController.formatString("NotificationMessageGroupContact2", R.string.NotificationMessageGroupContact2, args[0], args[1], args[2]);
                                         message1 = LocaleController.getString("AttachContact", R.string.AttachContact);
+                                        break;
+                                    }
+                                    case "CHAT_MESSAGE_QUIZ": {
+                                        messageText = LocaleController.formatString("NotificationMessageGroupQuiz2", R.string.NotificationMessageGroupQuiz2, args[0], args[1], args[2]);
+                                        message1 = LocaleController.getString("PollQuiz", R.string.PollQuiz);
                                         break;
                                     }
                                     case "CHAT_MESSAGE_POLL": {
@@ -740,7 +764,7 @@ public class GcmPushListenerService extends FirebaseMessagingService {
                                     case "PINNED_STICKER": {
                                         if (chat_from_id != 0) {
                                             if (args.length > 2 && !TextUtils.isEmpty(args[2])) {
-                                                messageText = LocaleController.formatString("NotificationActionPinnedStickerEmoji", R.string.NotificationActionPinnedStickerEmoji, args[0], args[1], args[2]);
+                                                messageText = LocaleController.formatString("NotificationActionPinnedStickerEmoji", R.string.NotificationActionPinnedStickerEmoji, args[0], args[2], args[1]);
                                             } else {
                                                 messageText = LocaleController.formatString("NotificationActionPinnedSticker", R.string.NotificationActionPinnedSticker, args[0], args[1]);
                                             }
@@ -763,15 +787,23 @@ public class GcmPushListenerService extends FirebaseMessagingService {
                                     }
                                     case "PINNED_CONTACT": {
                                         if (chat_from_id != 0) {
-                                            messageText = LocaleController.formatString("NotificationActionPinnedContact2", R.string.NotificationActionPinnedContact2, args[0], args[1], args[2]);
+                                            messageText = LocaleController.formatString("NotificationActionPinnedContact2", R.string.NotificationActionPinnedContact2, args[0], args[2], args[1]);
                                         } else {
                                             messageText = LocaleController.formatString("NotificationActionPinnedContactChannel2", R.string.NotificationActionPinnedContactChannel2, args[0], args[1]);
                                         }
                                         break;
                                     }
+                                    case "PINNED_QUIZ": {
+                                        if (chat_from_id != 0) {
+                                            messageText = LocaleController.formatString("NotificationActionPinnedQuiz2", R.string.NotificationActionPinnedQuiz2, args[0], args[2], args[1]);
+                                        } else {
+                                            messageText = LocaleController.formatString("NotificationActionPinnedQuizChannel2", R.string.NotificationActionPinnedQuizChannel2, args[0], args[1]);
+                                        }
+                                        break;
+                                    }
                                     case "PINNED_POLL": {
                                         if (chat_from_id != 0) {
-                                            messageText = LocaleController.formatString("NotificationActionPinnedPoll2", R.string.NotificationActionPinnedPoll2, args[0], args[1], args[2]);
+                                            messageText = LocaleController.formatString("NotificationActionPinnedPoll2", R.string.NotificationActionPinnedPoll2, args[0], args[2], args[1]);
                                         } else {
                                             messageText = LocaleController.formatString("NotificationActionPinnedPollChannel2", R.string.NotificationActionPinnedPollChannel2, args[0], args[1]);
                                         }
@@ -881,15 +913,15 @@ public class GcmPushListenerService extends FirebaseMessagingService {
 
                                     MessageObject messageObject = new MessageObject(currentAccount, messageOwner, messageText, name, userName, localMessage, channel, edited);
                                     ArrayList<MessageObject> arrayList = new ArrayList<>();
-                                    arrayList.add(messageObject);//TODO
+                                    arrayList.add(messageObject);
+                                    canRelease = false;
                                     NotificationsController.getInstance(currentAccount).processNewMessages(arrayList, true, true, countDownLatch);
-                                } else {
-                                    countDownLatch.countDown();
                                 }
-                            } else {
-                                countDownLatch.countDown();
                             }
                         }
+                    }
+                    if (canRelease) {
+                        countDownLatch.countDown();
                     }
 
                     ConnectionsManager.onInternalPushReceived(currentAccount);
@@ -915,7 +947,7 @@ public class GcmPushListenerService extends FirebaseMessagingService {
 
         }
         if (BuildVars.DEBUG_VERSION) {
-            FileLog.d("finished GCM service, time = " + (SystemClock.uptimeMillis() - receiveTime));
+            FileLog.d("finished GCM service, time = " + (SystemClock.elapsedRealtime() - receiveTime));
         }
     }
 

@@ -43,57 +43,60 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import androidx.annotation.NonNull;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+
 import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.ChatObject;
 import org.telegram.messenger.ContactsController;
-import org.telegram.messenger.MediaDataController;
-import org.telegram.messenger.LocaleController;
-import org.telegram.messenger.MediaController;
-import org.telegram.messenger.MessagesController;
-import org.telegram.messenger.SendMessagesHelper;
-import org.telegram.messenger.UserConfig;
-import org.telegram.messenger.browser.Browser;
-import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.FileLoader;
 import org.telegram.messenger.FileLog;
-import org.telegram.tgnet.ConnectionsManager;
-import org.telegram.tgnet.TLRPC;
+import org.telegram.messenger.LocaleController;
+import org.telegram.messenger.MediaController;
+import org.telegram.messenger.MediaDataController;
 import org.telegram.messenger.MessageObject;
+import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
+import org.telegram.messenger.SendMessagesHelper;
+import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.Utilities;
+import org.telegram.messenger.browser.Browser;
+import org.telegram.tgnet.ConnectionsManager;
+import org.telegram.tgnet.TLRPC;
+import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.ActionBarMenu;
 import org.telegram.ui.ActionBar.ActionBarMenuItem;
-import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.BackDrawable;
+import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.ActionBar.BottomSheet;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.ActionBar.ThemeDescription;
 import org.telegram.ui.Cells.GraySectionCell;
 import org.telegram.ui.Cells.LoadingCell;
+import org.telegram.ui.Cells.SharedAudioCell;
 import org.telegram.ui.Cells.SharedDocumentCell;
 import org.telegram.ui.Cells.SharedLinkCell;
 import org.telegram.ui.Cells.SharedMediaSectionCell;
 import org.telegram.ui.Cells.SharedPhotoVideoCell;
-import org.telegram.ui.Cells.SharedAudioCell;
 import org.telegram.ui.Components.AlertsCreator;
 import org.telegram.ui.Components.AnimationProperties;
 import org.telegram.ui.Components.BackupImageView;
-import org.telegram.ui.ActionBar.BaseFragment;
+import org.telegram.ui.Components.ClippingImageView;
 import org.telegram.ui.Components.EmbedBottomSheet;
+import org.telegram.ui.Components.FragmentContextView;
 import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.NumberTextView;
-import org.telegram.ui.Components.FragmentContextView;
 import org.telegram.ui.Components.RadialProgressView;
 import org.telegram.ui.Components.RecyclerListView;
 import org.telegram.ui.Components.ScrollSlidingTextTabStrip;
+import org.telegram.ui.Components.SharedMediaLayout;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
-
-import androidx.recyclerview.widget.LinearLayoutManager;
-import androidx.recyclerview.widget.RecyclerView;
 
 @SuppressWarnings("unchecked")
 public class MediaActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
@@ -106,6 +109,7 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
         private ImageView emptyImageView;
         private LinearLayout emptyView;
         private RadialProgressView progressBar;
+        private ClippingImageView animatingImageView;
         private int selectedType;
 
         public MediaPage(Context context) {
@@ -143,6 +147,7 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
 
     private boolean searchWas;
     private boolean searching;
+    private boolean disableActionBarScrolling;
 
     private int[] hasMedia;
     private int initialTab;
@@ -160,8 +165,10 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
     private boolean animatingForward;
     private boolean backAnimation;
 
+    private boolean swipeBackEnabled;
+
     private long dialog_id;
-    private int columnsCount = 4;
+    private int columnsCount = 3;
 
     private static final Interpolator interpolator = t -> {
         --t;
@@ -190,10 +197,9 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
             if (messageObject == null || mediaPages[0].selectedType != 0 && mediaPages[0].selectedType != 1) {
                 return null;
             }
-            int count = mediaPages[0].listView.getChildCount();
-
-            for (int a = 0; a < count; a++) {
-                View view = mediaPages[0].listView.getChildAt(a);
+            final RecyclerListView listView = mediaPages[0].listView;
+            for (int a = 0, count = listView.getChildCount(); a < count; a++) {
+                View view = listView.getChildAt(a);
                 BackupImageView imageView = null;
                 if (view instanceof SharedPhotoVideoCell) {
                     SharedPhotoVideoCell cell = (SharedPhotoVideoCell) view;
@@ -219,14 +225,42 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
                     PhotoViewer.PlaceProviderObject object = new PhotoViewer.PlaceProviderObject();
                     object.viewX = coords[0];
                     object.viewY = coords[1] - (Build.VERSION.SDK_INT >= 21 ? 0 : AndroidUtilities.statusBarHeight);
-                    object.parentView = mediaPages[0].listView;
+                    object.parentView = listView;
+                    object.animatingImageView = mediaPages[0].animatingImageView;
                     object.imageReceiver = imageView.getImageReceiver();
+                    object.radius = object.imageReceiver.getRoundRadius();
                     object.thumb = object.imageReceiver.getBitmapSafe();
                     object.parentView.getLocationInWindow(coords);
                     object.clipTopAddition = (int) (actionBar.getHeight() + actionBar.getTranslationY());
                     if (fragmentContextView != null && fragmentContextView.getVisibility() == View.VISIBLE) {
                         object.clipTopAddition += AndroidUtilities.dp(36);
                     }
+
+                    if (PhotoViewer.isShowingImage(messageObject)) {
+                        final View pinnedHeader = listView.getPinnedHeader();
+                        if (pinnedHeader != null) {
+                            int top = (int) (actionBar.getHeight() + actionBar.getTranslationY());
+                            if (fragmentContextView != null && fragmentContextView.getVisibility() == View.VISIBLE) {
+                                top += fragmentContextView.getHeight() - AndroidUtilities.dp(2.5f);
+                            }
+                            if (view instanceof SharedDocumentCell) {
+                                top += AndroidUtilities.dp(8f);
+                            }
+                            final int topOffset = top - object.viewY;
+                            if (topOffset > view.getHeight()) {
+                                scrollWithoutActionBar(listView, -(topOffset + pinnedHeader.getHeight()));
+                            } else {
+                                int bottomOffset = object.viewY - listView.getHeight();
+                                if (view instanceof SharedDocumentCell) {
+                                    bottomOffset -= AndroidUtilities.dp(8f);
+                                }
+                                if (bottomOffset >= 0) {
+                                    scrollWithoutActionBar(listView, bottomOffset + view.getHeight());
+                                }
+                            }
+                        }
+                    }
+
                     return object;
                 }
             }
@@ -234,91 +268,7 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
         }
     };
 
-    public static class SharedMediaData {
-        private ArrayList<MessageObject> messages = new ArrayList<>();
-        private SparseArray<MessageObject>[] messagesDict = new SparseArray[]{new SparseArray<>(), new SparseArray<>()};
-        private ArrayList<String> sections = new ArrayList<>();
-        private HashMap<String, ArrayList<MessageObject>> sectionArrays = new HashMap<>();
-        private int totalCount;
-        private boolean loading;
-        private boolean[] endReached = new boolean[]{false, true};
-        private int[] max_id = new int[]{0, 0};
-
-        public void setTotalCount(int count) {
-            totalCount = count;
-        }
-
-        public void setMaxId(int num, int value) {
-            max_id[num] = value;
-        }
-
-        public void setEndReached(int num, boolean value) {
-            endReached[num] = value;
-        }
-
-        public boolean addMessage(MessageObject messageObject, int loadIndex, boolean isNew, boolean enc) {
-            if (messagesDict[loadIndex].indexOfKey(messageObject.getId()) >= 0) {
-                return false;
-            }
-            ArrayList<MessageObject> messageObjects = sectionArrays.get(messageObject.monthKey);
-            if (messageObjects == null) {
-                messageObjects = new ArrayList<>();
-                sectionArrays.put(messageObject.monthKey, messageObjects);
-                if (isNew) {
-                    sections.add(0, messageObject.monthKey);
-                } else {
-                    sections.add(messageObject.monthKey);
-                }
-            }
-            if (isNew) {
-                messageObjects.add(0, messageObject);
-                messages.add(0, messageObject);
-            } else {
-                messageObjects.add(messageObject);
-                messages.add(messageObject);
-            }
-            messagesDict[loadIndex].put(messageObject.getId(), messageObject);
-            if (!enc) {
-                if (messageObject.getId() > 0) {
-                    max_id[loadIndex] = Math.min(messageObject.getId(), max_id[loadIndex]);
-                }
-            } else {
-                max_id[loadIndex] = Math.max(messageObject.getId(), max_id[loadIndex]);
-            }
-            return true;
-        }
-
-        public boolean deleteMessage(int mid, int loadIndex) {
-            MessageObject messageObject = messagesDict[loadIndex].get(mid);
-            if (messageObject == null) {
-                return false;
-            }
-            ArrayList<MessageObject> messageObjects = sectionArrays.get(messageObject.monthKey);
-            if (messageObjects == null) {
-                return false;
-            }
-            messageObjects.remove(messageObject);
-            messages.remove(messageObject);
-            messagesDict[loadIndex].remove(messageObject.getId());
-            if (messageObjects.isEmpty()) {
-                sectionArrays.remove(messageObject.monthKey);
-                sections.remove(messageObject.monthKey);
-            }
-            totalCount--;
-            return true;
-        }
-
-        public void replaceMid(int oldMid, int newMid) {
-            MessageObject obj = messagesDict[0].get(oldMid);
-            if (obj != null) {
-                messagesDict[0].remove(oldMid);
-                messagesDict[0].put(newMid, obj);
-                obj.messageOwner.id = newMid;
-            }
-        }
-    }
-
-    private SharedMediaData[] sharedMediaData = new SharedMediaData[5];
+    private SharedMediaLayout.SharedMediaData[] sharedMediaData = new SharedMediaLayout.SharedMediaData[5];
 
     private final static int forward = 3;
     private final static int delete = 4;
@@ -328,13 +278,13 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
         this(args, media, null, MediaDataController.MEDIA_PHOTOVIDEO);
     }
 
-    public MediaActivity(Bundle args, int[] media, SharedMediaData[] mediaData, int initTab) {
+    public MediaActivity(Bundle args, int[] media, SharedMediaLayout.SharedMediaData[] mediaData, int initTab) {
         super(args);
         hasMedia = media;
         initialTab = initTab;
         dialog_id = args.getLong("dialog_id", 0);
         for (int a = 0; a < sharedMediaData.length; a++) {
-            sharedMediaData[a] = new SharedMediaData();
+            sharedMediaData[a] = new SharedMediaLayout.SharedMediaData();
             sharedMediaData[a].max_id[0] = ((int) dialog_id) == 0 ? Integer.MIN_VALUE : Integer.MAX_VALUE;
             if (mergeDialogId != 0 && info != null) {
                 sharedMediaData[a].max_id[1] = info.migrated_from_max_id;
@@ -342,13 +292,13 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
             }
             if (mediaData != null) {
                 sharedMediaData[a].totalCount = mediaData[a].totalCount;
-                //sharedMediaData[a].endReached = mediaData[a].endReached;
                 sharedMediaData[a].messages.addAll(mediaData[a].messages);
                 sharedMediaData[a].sections.addAll(mediaData[a].sections);
                 for (HashMap.Entry<String, ArrayList<MessageObject>> entry : mediaData[a].sectionArrays.entrySet()) {
                     sharedMediaData[a].sectionArrays.put(entry.getKey(), new ArrayList<>(entry.getValue()));
                 }
                 for (int i = 0; i < 2; i++) {
+                    sharedMediaData[a].endReached[i] = mediaData[a].endReached[i];
                     sharedMediaData[a].messagesDict[i] = mediaData[a].messagesDict[i].clone();
                     sharedMediaData[a].max_id[i] = mediaData[a].max_id[i];
                 }
@@ -450,14 +400,7 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
             @Override
             public void onItemClick(int id) {
                 if (id == -1) {
-                    if (actionBar.isActionModeShowed()) {
-                        for (int a = 1; a >= 0; a--) {
-                            selectedFiles[a].clear();
-                        }
-                        cantDeleteMessagesCount = 0;
-                        actionBar.hideActionMode();
-                        updateRowsSelection();
-                    } else {
+                    if (!closeActionMode()) {
                         finishFragment();
                     }
                 } else if (id == delete) {
@@ -839,6 +782,7 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
                         mediaPages[a].listView.checkSection();
                     }
                 }
+                fixScrollOffset();
             }
 
             @Override
@@ -1120,6 +1064,16 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
                 public boolean supportsPredictiveItemAnimations() {
                     return false;
                 }
+
+                @Override
+                protected void calculateExtraLayoutSpace(@NonNull RecyclerView.State state, @NonNull int[] extraLayoutSpace) {
+                    super.calculateExtraLayoutSpace(state, extraLayoutSpace);
+                    if (mediaPage.selectedType == 0) {
+                        extraLayoutSpace[1] = Math.max(extraLayoutSpace[1], SharedPhotoVideoCell.getItemSize(columnsCount) * 2);
+                    } else if (mediaPage.selectedType == 1) {
+                        extraLayoutSpace[1] = Math.max(extraLayoutSpace[1], AndroidUtilities.dp(56f) * 2);
+                    }
+                }
             };
             mediaPages[a].listView = new RecyclerListView(context) {
                 @Override
@@ -1146,7 +1100,7 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
 
                 @Override
                 public void onScrollStateChanged(RecyclerView recyclerView, int newState) {
-                    if (newState == RecyclerView.SCROLL_STATE_DRAGGING && searching && searchWas) {
+                    if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
                         AndroidUtilities.hideKeyboard(getParentActivity().getCurrentFocus());
                     }
                     scrolling = newState != RecyclerView.SCROLL_STATE_IDLE;
@@ -1156,7 +1110,7 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
                         if (scrollY != 0 && scrollY != actionBarHeight) {
                             if (scrollY < actionBarHeight / 2) {
                                 mediaPages[0].listView.smoothScrollBy(0, -scrollY);
-                            } else {
+                            } else if (mediaPages[0].listView.canScrollVertically(1)) {
                                 mediaPages[0].listView.smoothScrollBy(0, actionBarHeight - scrollY);
                             }
                         }
@@ -1172,7 +1126,8 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
                     int visibleItemCount = firstVisibleItem == RecyclerView.NO_POSITION ? 0 : Math.abs(layoutManager.findLastVisibleItemPosition() - firstVisibleItem) + 1;
                     int totalItemCount = recyclerView.getAdapter().getItemCount();
 
-                    if (visibleItemCount != 0 && firstVisibleItem + visibleItemCount > totalItemCount - 2 && !sharedMediaData[mediaPage.selectedType].loading) {
+                    final int threshold = mediaPage.selectedType == 0 ? 3 : 6;
+                    if (visibleItemCount != 0 && firstVisibleItem + visibleItemCount > totalItemCount - threshold && !sharedMediaData[mediaPage.selectedType].loading) {
                         int type;
                         if (mediaPage.selectedType == 0) {
                             type = MediaDataController.MEDIA_PHOTOVIDEO;
@@ -1193,7 +1148,7 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
                             MediaDataController.getInstance(currentAccount).loadMedia(mergeDialogId, 50, sharedMediaData[mediaPage.selectedType].max_id[1], type, 1, classGuid);
                         }
                     }
-                    if (recyclerView == mediaPages[0].listView && !searching && !actionBar.isActionModeShowed()) {
+                    if (recyclerView == mediaPages[0].listView && !searching && !actionBar.isActionModeShowed() && !disableActionBarScrolling) {
                         float currentTranslation = actionBar.getTranslationY();
                         float newTranslation = currentTranslation - dy;
                         if (newTranslation < -ActionBar.getCurrentActionBarHeight()) {
@@ -1225,6 +1180,17 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
             if (a == 0 && scrollToPositionOnRecreate != -1) {
                 layoutManager.scrollToPositionWithOffset(scrollToPositionOnRecreate, scrollToOffsetOnRecreate);
             }
+
+            final RecyclerListView listView = mediaPages[a].listView;
+            mediaPages[a].animatingImageView = new ClippingImageView(context) {
+                @Override
+                public void invalidate() {
+                    super.invalidate();
+                    listView.invalidate();
+                }
+            };
+            mediaPages[a].animatingImageView.setVisibility(View.GONE);
+            mediaPages[a].listView.addOverlayView(mediaPages[a].animatingImageView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
 
             mediaPages[a].emptyView = new LinearLayout(context) {
                 @Override
@@ -1281,6 +1247,20 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
         swipeBackEnabled = scrollSlidingTextTabStrip.getCurrentTabId() == scrollSlidingTextTabStrip.getFirstTabId();
 
         return fragmentView;
+    }
+
+    private boolean closeActionMode() {
+        if (actionBar.isActionModeShowed()) {
+            for (int a = 1; a >= 0; a--) {
+                selectedFiles[a].clear();
+            }
+            cantDeleteMessagesCount = 0;
+            actionBar.hideActionMode();
+            updateRowsSelection();
+            return true;
+        } else {
+            return false;
+        }
     }
 
     private void setScrollY(float value) {
@@ -1410,7 +1390,7 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
             boolean updated = false;
             for (int a = 0, N = markAsDeletedMessages.size(); a < N; a++) {
                 for (int b = 0; b < sharedMediaData.length; b++) {
-                    if (sharedMediaData[b].deleteMessage(markAsDeletedMessages.get(a), loadIndex)) {
+                    if (sharedMediaData[b].deleteMessage(markAsDeletedMessages.get(a), loadIndex) != null) {
                         updated = true;
                     }
                 }
@@ -1494,8 +1474,8 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
             }
             Integer msgId = (Integer) args[0];
             Integer newMsgId = (Integer) args[1];
-            for (SharedMediaData data : sharedMediaData) {
-                data.replaceMid(msgId, newMsgId);
+            for (int a = 0; a < sharedMediaData.length; a++) {
+                sharedMediaData[a].replaceMid(msgId, newMsgId);
             }
         } else if (id == NotificationCenter.messagePlayingDidStart || id == NotificationCenter.messagePlayingPlayStateChanged || id == NotificationCenter.messagePlayingDidReset) {
             if (id == NotificationCenter.messagePlayingDidReset || id == NotificationCenter.messagePlayingPlayStateChanged) {
@@ -1553,6 +1533,11 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
     }
 
     @Override
+    public boolean isSwipeBackEnabled(MotionEvent event) {
+        return swipeBackEnabled;
+    }
+
+    @Override
     public void onConfigurationChanged(android.content.res.Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         for (int a = 0; a < mediaPages.length; a++) {
@@ -1573,19 +1558,21 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
 
     @Override
     public boolean onBackPressed() {
-        return actionBar.isEnabled();
+        return actionBar.isEnabled() && !closeActionMode();
     }
 
-    private void updateSections(ViewGroup listView, boolean checkBottom) {
+    private void updateSections(RecyclerView listView, boolean checkTopBottom) {
         int count = listView.getChildCount();
         int minPositionDateHolder = Integer.MAX_VALUE;
         View minDateChild = null;
         float padding = listView.getPaddingTop() + actionBar.getTranslationY();
+        int minTop = Integer.MAX_VALUE;
         int maxBottom = 0;
 
         for (int a = 0; a < count; a++) {
             View view = listView.getChildAt(a);
             int bottom = view.getBottom();
+            minTop = Math.min(minTop, view.getTop());
             maxBottom = Math.max(bottom, maxBottom);
             if (bottom <= padding) {
                 continue;
@@ -1612,8 +1599,13 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
                 }
             }
         }
-        if (checkBottom && maxBottom != 0 && maxBottom < (listView.getMeasuredHeight() - listView.getPaddingBottom())) {
-            resetScroll();
+        if (checkTopBottom) {
+            if (maxBottom != 0 && maxBottom < (listView.getMeasuredHeight() - listView.getPaddingBottom())) {
+                resetScroll();
+            } else if (minTop != Integer.MAX_VALUE && minTop > listView.getPaddingTop() + actionBar.getTranslationY()) {
+                scrollWithoutActionBar(listView, -listView.computeVerticalScrollOffset());
+                resetScroll();
+            }
         }
     }
 
@@ -1705,23 +1697,23 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
             scrollSlidingTextTabStrip.removeTabs();
             if (hasMedia[0] != 0 || hasMedia[1] == 0 && hasMedia[2] == 0 && hasMedia[3] == 0 && hasMedia[4] == 0) {
                 if (!scrollSlidingTextTabStrip.hasTab(0)) {
-                    scrollSlidingTextTabStrip.addTextTab(0, LocaleController.getString("SharedMediaTab", R.string.SharedMediaTab));
+                    scrollSlidingTextTabStrip.addTextTab(0, LocaleController.getString("SharedMediaTab2", R.string.SharedMediaTab2));
                 }
             }
             if (hasMedia[1] != 0) {
                 if (!scrollSlidingTextTabStrip.hasTab(1)) {
-                    scrollSlidingTextTabStrip.addTextTab(1, LocaleController.getString("SharedFilesTab", R.string.SharedFilesTab));
+                    scrollSlidingTextTabStrip.addTextTab(1, LocaleController.getString("SharedFilesTab2", R.string.SharedFilesTab2));
                 }
             }
             if ((int) dialog_id != 0) {
                 if (hasMedia[3] != 0) {
                     if (!scrollSlidingTextTabStrip.hasTab(3)) {
-                        scrollSlidingTextTabStrip.addTextTab(3, LocaleController.getString("SharedLinksTab", R.string.SharedLinksTab));
+                        scrollSlidingTextTabStrip.addTextTab(3, LocaleController.getString("SharedLinksTab2", R.string.SharedLinksTab2));
                     }
                 }
                 if (hasMedia[4] != 0) {
                     if (!scrollSlidingTextTabStrip.hasTab(4)) {
-                        scrollSlidingTextTabStrip.addTextTab(4, LocaleController.getString("SharedMusicTab", R.string.SharedMusicTab));
+                        scrollSlidingTextTabStrip.addTextTab(4, LocaleController.getString("SharedMusicTab2", R.string.SharedMusicTab2));
                     }
                 }
             } else {
@@ -1729,14 +1721,14 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
                 if (currentEncryptedChat != null && AndroidUtilities.getPeerLayerVersion(currentEncryptedChat.layer) >= 46) {
                     if (hasMedia[4] != 0) {
                         if (!scrollSlidingTextTabStrip.hasTab(4)) {
-                            scrollSlidingTextTabStrip.addTextTab(4, LocaleController.getString("SharedMusicTab", R.string.SharedMusicTab));
+                            scrollSlidingTextTabStrip.addTextTab(4, LocaleController.getString("SharedMusicTab2", R.string.SharedMusicTab2));
                         }
                     }
                 }
             }
             if (hasMedia[2] != 0) {
                 if (!scrollSlidingTextTabStrip.hasTab(2)) {
-                    scrollSlidingTextTabStrip.addTextTab(2, LocaleController.getString("SharedVoiceTab", R.string.SharedVoiceTab));
+                    scrollSlidingTextTabStrip.addTextTab(2, LocaleController.getString("SharedVoiceTab2", R.string.SharedVoiceTab2));
                 }
             }
         }
@@ -2057,7 +2049,7 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
                 }
             } else if (selectedMode == 3) {
                 try {
-                    TLRPC.WebPage webPage = message.messageOwner.media.webpage;
+                    TLRPC.WebPage webPage = message.messageOwner.media != null ? message.messageOwner.media.webpage : null;
                     String link = null;
                     if (webPage != null && !(webPage instanceof TLRPC.TL_webPageEmpty)) {
                         if (webPage.cached_page != null) {
@@ -2110,20 +2102,40 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
         }
 
         if (AndroidUtilities.isTablet()) {
-            columnsCount = 4;
+            columnsCount = 3;
             mediaPages[num].emptyTextView.setPadding(AndroidUtilities.dp(40), 0, AndroidUtilities.dp(40), AndroidUtilities.dp(128));
         } else {
             if (rotation == Surface.ROTATION_270 || rotation == Surface.ROTATION_90) {
                 columnsCount = 6;
                 mediaPages[num].emptyTextView.setPadding(AndroidUtilities.dp(40), 0, AndroidUtilities.dp(40), 0);
             } else {
-                columnsCount = 4;
+                columnsCount = 3;
                 mediaPages[num].emptyTextView.setPadding(AndroidUtilities.dp(40), 0, AndroidUtilities.dp(40), AndroidUtilities.dp(128));
             }
         }
         if (num == 0) {
             photoVideoAdapter.notifyDataSetChanged();
+            fixScrollOffset();
         }
+    }
+
+    private void fixScrollOffset() {
+        if (actionBar.getTranslationY() != 0f) {
+            final RecyclerListView listView = mediaPages[0].listView;
+            final View child = listView.getChildAt(0);
+            if (child != null) {
+                final int offset = (int) (child.getY() - (actionBar.getMeasuredHeight() + actionBar.getTranslationY() + additionalPadding));
+                if (offset > 0) {
+                    scrollWithoutActionBar(listView, offset);
+                }
+            }
+        }
+    }
+
+    private void scrollWithoutActionBar(RecyclerView listView, int dy) {
+        disableActionBarScrolling = true;
+        listView.scrollBy(0, dy);
+        disableActionBarScrolling = false;
     }
 
     SharedLinkCell.SharedLinkCellDelegate sharedLinkCellDelegate = new SharedLinkCell.SharedLinkCellDelegate() {
@@ -2679,14 +2691,14 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
             } else {
                 for (int a = 0; a < mediaPages.length; a++) {
                     if (mediaPages[a].selectedType == currentType) {
-                        if (getItemCount() != 0) {
-                            mediaPages[a].listView.setEmptyView(mediaPages[a].emptyView);
-                            mediaPages[a].progressView.setVisibility(View.GONE);
-                        } else {
+                        //if (getItemCount() != 0) {
+                        mediaPages[a].listView.setEmptyView(mediaPages[a].emptyView);
+                        mediaPages[a].progressView.setVisibility(View.GONE);
+                        /*} else {
                             mediaPages[a].listView.setEmptyView(null);
                             mediaPages[a].emptyView.setVisibility(View.GONE);
                             mediaPages[a].progressView.setVisibility(View.VISIBLE);
-                        }
+                        }*/
                     }
                 }
 
@@ -2769,6 +2781,9 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
 
         private void updateSearchResults(final ArrayList<MessageObject> documents) {
             AndroidUtilities.runOnUIThread(() -> {
+                if (!searching) {
+                    return;
+                }
                 searchesInProgress--;
                 searchResult = documents;
                 int count = getItemCount();
@@ -2919,16 +2934,19 @@ public class MediaActivity extends BaseFragment implements NotificationCenter.No
 
         arrayList.add(new ThemeDescription(selectedMessagesCountTextView, ThemeDescription.FLAG_TEXTCOLOR, null, null, null, null, Theme.key_actionBarDefaultIcon));
 
-        arrayList.add(new ThemeDescription(fragmentContextView, ThemeDescription.FLAG_CELLBACKGROUNDCOLOR, new Class[]{FragmentContextView.class}, new String[]{"frameLayout"}, null, null, null, Theme.key_inappPlayerBackground));
-        arrayList.add(new ThemeDescription(fragmentContextView, 0, new Class[]{FragmentContextView.class}, new String[]{"playButton"}, null, null, null, Theme.key_inappPlayerPlayPause));
-        arrayList.add(new ThemeDescription(fragmentContextView, ThemeDescription.FLAG_TEXTCOLOR, new Class[]{FragmentContextView.class}, new String[]{"titleTextView"}, null, null, null, Theme.key_inappPlayerTitle));
-        arrayList.add(new ThemeDescription(fragmentContextView, ThemeDescription.FLAG_TEXTCOLOR, new Class[]{FragmentContextView.class}, new String[]{"frameLayout"}, null, null, null, Theme.key_inappPlayerPerformer));
-        arrayList.add(new ThemeDescription(fragmentContextView, ThemeDescription.FLAG_CELLBACKGROUNDCOLOR, new Class[]{FragmentContextView.class}, new String[]{"closeButton"}, null, null, null, Theme.key_inappPlayerClose));
+        arrayList.add(new ThemeDescription(fragmentContextView, ThemeDescription.FLAG_BACKGROUND | ThemeDescription.FLAG_CHECKTAG, new Class[]{FragmentContextView.class}, new String[]{"frameLayout"}, null, null, null, Theme.key_inappPlayerBackground));
+        arrayList.add(new ThemeDescription(fragmentContextView, ThemeDescription.FLAG_IMAGECOLOR, new Class[]{FragmentContextView.class}, new String[]{"playButton"}, null, null, null, Theme.key_inappPlayerPlayPause));
+        arrayList.add(new ThemeDescription(fragmentContextView, ThemeDescription.FLAG_TEXTCOLOR | ThemeDescription.FLAG_CHECKTAG, new Class[]{FragmentContextView.class}, new String[]{"titleTextView"}, null, null, null, Theme.key_inappPlayerTitle));
+        arrayList.add(new ThemeDescription(fragmentContextView, ThemeDescription.FLAG_TEXTCOLOR | ThemeDescription.FLAG_FASTSCROLL, new Class[]{FragmentContextView.class}, new String[]{"titleTextView"}, null, null, null, Theme.key_inappPlayerPerformer));
+        arrayList.add(new ThemeDescription(fragmentContextView, ThemeDescription.FLAG_IMAGECOLOR, new Class[]{FragmentContextView.class}, new String[]{"closeButton"}, null, null, null, Theme.key_inappPlayerClose));
 
+        arrayList.add(new ThemeDescription(fragmentContextView, ThemeDescription.FLAG_BACKGROUND | ThemeDescription.FLAG_CHECKTAG, new Class[]{FragmentContextView.class}, new String[]{"frameLayout"}, null, null, null, Theme.key_returnToCallBackground));
+        arrayList.add(new ThemeDescription(fragmentContextView, ThemeDescription.FLAG_TEXTCOLOR | ThemeDescription.FLAG_CHECKTAG, new Class[]{FragmentContextView.class}, new String[]{"titleTextView"}, null, null, null, Theme.key_returnToCallText));
+
+        arrayList.add(new ThemeDescription(scrollSlidingTextTabStrip, 0, new Class[]{ScrollSlidingTextTabStrip.class}, new String[]{"selectorDrawable"}, null, null, null, Theme.key_actionBarTabLine));
         arrayList.add(new ThemeDescription(scrollSlidingTextTabStrip.getTabsContainer(), ThemeDescription.FLAG_TEXTCOLOR | ThemeDescription.FLAG_CHECKTAG, new Class[]{TextView.class}, null, null, null, Theme.key_actionBarTabActiveText));
         arrayList.add(new ThemeDescription(scrollSlidingTextTabStrip.getTabsContainer(), ThemeDescription.FLAG_TEXTCOLOR | ThemeDescription.FLAG_CHECKTAG, new Class[]{TextView.class}, null, null, null, Theme.key_actionBarTabUnactiveText));
-        arrayList.add(new ThemeDescription(scrollSlidingTextTabStrip.getTabsContainer(), ThemeDescription.FLAG_BACKGROUNDFILTER | ThemeDescription.FLAG_DRAWABLESELECTEDSTATE, new Class[]{TextView.class}, null, null, null, Theme.key_actionBarTabLine));
-        arrayList.add(new ThemeDescription(null, 0, null, null, new Drawable[]{scrollSlidingTextTabStrip.getSelectorDrawable()}, null, Theme.key_actionBarTabSelector));
+        arrayList.add(new ThemeDescription(scrollSlidingTextTabStrip.getTabsContainer(), ThemeDescription.FLAG_BACKGROUNDFILTER | ThemeDescription.FLAG_DRAWABLESELECTEDSTATE, new Class[]{TextView.class}, null, null, null, Theme.key_actionBarTabSelector));
 
         for (int a = 0; a < mediaPages.length; a++) {
             final int num = a;

@@ -18,6 +18,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.view.Menu;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityManager;
@@ -53,7 +54,6 @@ public class BaseFragment {
     protected boolean inPreviewMode;
     protected int classGuid;
     protected Bundle arguments;
-    protected boolean swipeBackEnabled = true;
     protected boolean hasOwnBackground = false;
     protected boolean isPaused = true;
 
@@ -97,6 +97,10 @@ public class BaseFragment {
         return classGuid;
     }
 
+    public boolean isSwipeBackEnabled(MotionEvent event) {
+        return true;
+    }
+
     protected void setInPreviewMode(boolean value) {
         inPreviewMode = value;
         if (actionBar != null) {
@@ -114,7 +118,7 @@ public class BaseFragment {
             if (parent != null) {
                 try {
                     onRemoveFromParent();
-                    parent.removeView(fragmentView);
+                    parent.removeViewInLayout(fragmentView);
                 } catch (Exception e) {
                     FileLog.e(e);
                 }
@@ -125,7 +129,7 @@ public class BaseFragment {
             ViewGroup parent = (ViewGroup) actionBar.getParent();
             if (parent != null) {
                 try {
-                    parent.removeView(actionBar);
+                    parent.removeViewInLayout(actionBar);
                 } catch (Exception e) {
                     FileLog.e(e);
                 }
@@ -152,7 +156,7 @@ public class BaseFragment {
                 if (parent != null) {
                     try {
                         onRemoveFromParent();
-                        parent.removeView(fragmentView);
+                        parent.removeViewInLayout(fragmentView);
                     } catch (Exception e) {
                         FileLog.e(e);
                     }
@@ -163,11 +167,11 @@ public class BaseFragment {
             }
             if (actionBar != null) {
                 boolean differentParent = parentLayout != null && parentLayout.getContext() != actionBar.getContext();
-                if (actionBar.getAddToContainer() || differentParent) {
+                if (actionBar.shouldAddToContainer() || differentParent) {
                     ViewGroup parent = (ViewGroup) actionBar.getParent();
                     if (parent != null) {
                         try {
-                            parent.removeView(actionBar);
+                            parent.removeViewInLayout(actionBar);
                         } catch (Exception e) {
                             FileLog.e(e);
                         }
@@ -292,6 +296,10 @@ public class BaseFragment {
 
     public void restoreSelfArgs(Bundle args) {
 
+    }
+
+    public ActionBarLayout getParentLayout() {
+        return parentLayout;
     }
 
     public boolean presentFragmentAsPreview(BaseFragment fragment) {
@@ -424,8 +432,10 @@ public class BaseFragment {
                 if (onDismissListener != null) {
                     onDismissListener.onDismiss(dialog1);
                 }
-                onDialogDismiss(visibleDialog);
-                visibleDialog = null;
+                onDialogDismiss((Dialog) dialog1);
+                if (dialog1 == visibleDialog) {
+                    visibleDialog = null;
+                }
             });
             visibleDialog.show();
             return visibleDialog;
@@ -437,6 +447,22 @@ public class BaseFragment {
 
     protected void onDialogDismiss(Dialog dialog) {
 
+    }
+
+    protected void onPanTranslationUpdate(int y) {
+
+    }
+
+    protected void onPanTransitionStart() {
+
+    }
+
+    protected void onPanTransitionEnd() {
+
+    }
+
+    public int getCurrentPanTranslationY() {
+        return parentLayout != null ? parentLayout.getCurrentPanTranslationY() : 0;
     }
 
     public Dialog getVisibleDialog() {
@@ -459,7 +485,7 @@ public class BaseFragment {
         return AccountInstance.getInstance(currentAccount);
     }
 
-    protected MessagesController getMessagesController() {
+    public MessagesController getMessagesController() {
         return getAccountInstance().getMessagesController();
     }
 
@@ -467,11 +493,11 @@ public class BaseFragment {
         return getAccountInstance().getContactsController();
     }
 
-    protected MediaDataController getMediaDataController() {
+    public MediaDataController getMediaDataController() {
         return getAccountInstance().getMediaDataController();
     }
 
-    protected ConnectionsManager getConnectionsManager() {
+    public ConnectionsManager getConnectionsManager() {
         return getAccountInstance().getConnectionsManager();
     }
 
@@ -487,11 +513,11 @@ public class BaseFragment {
         return getAccountInstance().getMessagesStorage();
     }
 
-    protected SendMessagesHelper getSendMessagesHelper() {
+    public SendMessagesHelper getSendMessagesHelper() {
         return getAccountInstance().getSendMessagesHelper();
     }
 
-    protected FileLoader getFileLoader() {
+    public FileLoader getFileLoader() {
         return getAccountInstance().getFileLoader();
     }
 

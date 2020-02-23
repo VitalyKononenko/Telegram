@@ -36,7 +36,6 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 import org.telegram.messenger.AndroidUtilities;
-import org.telegram.messenger.ChatObject;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.MediaController;
 import org.telegram.messenger.MessagesController;
@@ -44,11 +43,13 @@ import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.R;
 import org.telegram.messenger.SendMessagesHelper;
+import org.telegram.messenger.SharedConfig;
 import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.UserObject;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.ActionBarMenu;
+import org.telegram.ui.ActionBar.ActionBarMenuItem;
 import org.telegram.ui.ActionBar.ActionBarMenuSubItem;
 import org.telegram.ui.ActionBar.ActionBarPopupWindow;
 import org.telegram.ui.ActionBar.BaseFragment;
@@ -176,9 +177,11 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
         if (allowSearchImages) {
             menu.addItem(2, R.drawable.ic_ab_search).setContentDescription(LocaleController.getString("Search", R.string.Search));
         }
-        menu.addItem(1, R.drawable.ic_ab_other).setContentDescription(LocaleController.getString("AccDescrMoreOptions", R.string.AccDescrMoreOptions));
+        ActionBarMenuItem menuItem = menu.addItem(0, R.drawable.ic_ab_other);
+        menuItem.setContentDescription(LocaleController.getString("AccDescrMoreOptions", R.string.AccDescrMoreOptions));
+        menuItem.addSubItem(1, R.drawable.msg_openin, LocaleController.getString("OpenInExternalApp", R.string.OpenInExternalApp));
 
-        sizeNotifierFrameLayout = new SizeNotifierFrameLayout(context) {
+        sizeNotifierFrameLayout = new SizeNotifierFrameLayout(context, SharedConfig.smoothKeyboard) {
 
             private int lastNotifyWidth;
             private boolean ignoreLayout;
@@ -190,7 +193,7 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
 
                 setMeasuredDimension(widthSize, heightSize);
 
-                int keyboardSize = getKeyboardHeight();
+                int keyboardSize = SharedConfig.smoothKeyboard ? 0 : getKeyboardHeight();
                 if (keyboardSize <= AndroidUtilities.dp(20)) {
                     if (!AndroidUtilities.isInMultiwindow) {
                         heightSize -= commentTextView.getEmojiPadding();
@@ -234,7 +237,8 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
                 }
                 final int count = getChildCount();
 
-                int paddingBottom = getKeyboardHeight() <= AndroidUtilities.dp(20) && !AndroidUtilities.isInMultiwindow && !AndroidUtilities.isTablet() ? commentTextView.getEmojiPadding() : 0;
+                int keyboardSize = SharedConfig.smoothKeyboard ? 0 : getKeyboardHeight();
+                int paddingBottom = keyboardSize <= AndroidUtilities.dp(20) && !AndroidUtilities.isInMultiwindow && !AndroidUtilities.isTablet() ? commentTextView.getEmojiPadding() : 0;
                 setBottomClip(paddingBottom);
 
                 for (int i = 0; i < count; i++) {
@@ -288,7 +292,7 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
                         if (AndroidUtilities.isTablet()) {
                             childTop = getMeasuredHeight() - child.getMeasuredHeight();
                         } else {
-                            childTop = getMeasuredHeight() + getKeyboardHeight() - child.getMeasuredHeight();
+                            childTop = getMeasuredHeight() + keyboardSize - child.getMeasuredHeight();
                         }
                     }
                     child.layout(childLeft, childTop, childLeft + width, childTop + height);
@@ -372,10 +376,34 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
         writeButtonContainer.setScaleY(0.2f);
         writeButtonContainer.setAlpha(0.0f);
         writeButtonContainer.setContentDescription(LocaleController.getString("Send", R.string.Send));
-        sizeNotifierFrameLayout.addView(writeButtonContainer, LayoutHelper.createFrame(60, 60, Gravity.RIGHT | Gravity.BOTTOM, 0, 0, 6, 10));
-        writeButtonContainer.setOnClickListener(v -> {
+        sizeNotifierFrameLayout.addView(writeButtonContainer, LayoutHelper.createFrame(60, 60, Gravity.RIGHT | Gravity.BOTTOM, 0, 0, 12, 10));
+
+        writeButton = new ImageView(context);
+        writeButtonDrawable = Theme.createSimpleSelectorCircleDrawable(AndroidUtilities.dp(56), Theme.getColor(Theme.key_dialogFloatingButton), Theme.getColor(Build.VERSION.SDK_INT >= 21 ? Theme.key_dialogFloatingButtonPressed : Theme.key_dialogFloatingButton));
+        if (Build.VERSION.SDK_INT < 21) {
+            Drawable shadowDrawable = context.getResources().getDrawable(R.drawable.floating_shadow_profile).mutate();
+            shadowDrawable.setColorFilter(new PorterDuffColorFilter(0xff000000, PorterDuff.Mode.MULTIPLY));
+            CombinedDrawable combinedDrawable = new CombinedDrawable(shadowDrawable, writeButtonDrawable, 0, 0);
+            combinedDrawable.setIconSize(AndroidUtilities.dp(56), AndroidUtilities.dp(56));
+            writeButtonDrawable = combinedDrawable;
+        }
+        writeButton.setBackgroundDrawable(writeButtonDrawable);
+        writeButton.setImageResource(R.drawable.attach_send);
+        writeButton.setColorFilter(new PorterDuffColorFilter(Theme.getColor(Theme.key_dialogFloatingIcon), PorterDuff.Mode.MULTIPLY));
+        writeButton.setScaleType(ImageView.ScaleType.CENTER);
+        if (Build.VERSION.SDK_INT >= 21) {
+            writeButton.setOutlineProvider(new ViewOutlineProvider() {
+                @SuppressLint("NewApi")
+                @Override
+                public void getOutline(View view, Outline outline) {
+                    outline.setOval(0, 0, AndroidUtilities.dp(56), AndroidUtilities.dp(56));
+                }
+            });
+        }
+        writeButtonContainer.addView(writeButton, LayoutHelper.createFrame(Build.VERSION.SDK_INT >= 21 ? 56 : 60, Build.VERSION.SDK_INT >= 21 ? 56 : 60, Gravity.LEFT | Gravity.TOP, Build.VERSION.SDK_INT >= 21 ? 2 : 0, 0, 0, 0));
+        writeButton.setOnClickListener(v -> {
             if (chatActivity != null && chatActivity.isInScheduleMode()) {
-                AlertsCreator.createScheduleDatePickerDialog(getParentActivity(), UserObject.isUserSelf(chatActivity.getCurrentUser()), (notify, scheduleDate) -> {
+                AlertsCreator.createScheduleDatePickerDialog(getParentActivity(), chatActivity.getDialogId(), (notify, scheduleDate) -> {
                     sendSelectedPhotos(selectedPhotos, selectedPhotosOrder, notify, scheduleDate);
                     finishFragment();
                 });
@@ -384,7 +412,7 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
                 finishFragment();
             }
         });
-        writeButtonContainer.setOnLongClickListener(view -> {
+        writeButton.setOnLongClickListener(view -> {
             if (chatActivity == null || maxSelectedPhotos == 1) {
                 return false;
             }
@@ -445,7 +473,7 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
                             sendPopupWindow.dismiss();
                         }
                         if (num == 0) {
-                            AlertsCreator.createScheduleDatePickerDialog(getParentActivity(), UserObject.isUserSelf(chatActivity.getCurrentUser()), (notify, scheduleDate) -> {
+                            AlertsCreator.createScheduleDatePickerDialog(getParentActivity(), chatActivity.getDialogId(), (notify, scheduleDate) -> {
                                 sendSelectedPhotos(selectedPhotos, selectedPhotosOrder, notify, scheduleDate);
                                 finishFragment();
                             });
@@ -477,30 +505,6 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
             return false;
         });
 
-        writeButton = new ImageView(context);
-        writeButtonDrawable = Theme.createSimpleSelectorCircleDrawable(AndroidUtilities.dp(56), Theme.getColor(Theme.key_dialogFloatingButton), Theme.getColor(Theme.key_dialogFloatingButtonPressed));
-        if (Build.VERSION.SDK_INT < 21) {
-            Drawable shadowDrawable = context.getResources().getDrawable(R.drawable.floating_shadow_profile).mutate();
-            shadowDrawable.setColorFilter(new PorterDuffColorFilter(0xff000000, PorterDuff.Mode.MULTIPLY));
-            CombinedDrawable combinedDrawable = new CombinedDrawable(shadowDrawable, writeButtonDrawable, 0, 0);
-            combinedDrawable.setIconSize(AndroidUtilities.dp(56), AndroidUtilities.dp(56));
-            writeButtonDrawable = combinedDrawable;
-        }
-        writeButton.setBackgroundDrawable(writeButtonDrawable);
-        writeButton.setImageResource(R.drawable.attach_send);
-        writeButton.setColorFilter(new PorterDuffColorFilter(Theme.getColor(Theme.key_dialogFloatingIcon), PorterDuff.Mode.MULTIPLY));
-        writeButton.setScaleType(ImageView.ScaleType.CENTER);
-        if (Build.VERSION.SDK_INT >= 21) {
-            writeButton.setOutlineProvider(new ViewOutlineProvider() {
-                @SuppressLint("NewApi")
-                @Override
-                public void getOutline(View view, Outline outline) {
-                    outline.setOval(0, 0, AndroidUtilities.dp(56), AndroidUtilities.dp(56));
-                }
-            });
-        }
-        writeButtonContainer.addView(writeButton, LayoutHelper.createFrame(Build.VERSION.SDK_INT >= 21 ? 56 : 60, Build.VERSION.SDK_INT >= 21 ? 56 : 60, Gravity.LEFT | Gravity.TOP, Build.VERSION.SDK_INT >= 21 ? 2 : 0, 0, 0, 0));
-
         textPaint.setTextSize(AndroidUtilities.dp(12));
         textPaint.setTypeface(AndroidUtilities.getTypeface("fonts/rmedium.ttf"));
 
@@ -528,7 +532,7 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
         selectedCountView.setAlpha(0.0f);
         selectedCountView.setScaleX(0.2f);
         selectedCountView.setScaleY(0.2f);
-        sizeNotifierFrameLayout.addView(selectedCountView, LayoutHelper.createFrame(42, 24, Gravity.RIGHT | Gravity.BOTTOM, 0, 0, -8, 9));
+        sizeNotifierFrameLayout.addView(selectedCountView, LayoutHelper.createFrame(42, 24, Gravity.RIGHT | Gravity.BOTTOM, 0, 0, -2, 9));
         if (selectPhotoType != 0) {
             commentTextView.setVisibility(View.GONE);
         }
@@ -592,6 +596,15 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
         } else if (id == NotificationCenter.closeChats) {
             removeSelfFromStack();
         }
+    }
+
+    @Override
+    public boolean onBackPressed() {
+        if (commentTextView != null && commentTextView.isPopupShowing()) {
+            commentTextView.hidePopup(true);
+            return false;
+        }
+        return super.onBackPressed();
     }
 
     public void setMaxSelectedPhotos(int value, boolean order) {
@@ -744,7 +757,7 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
 
     private void openPhotoPicker(MediaController.AlbumEntry albumEntry, int type) {
         if (albumEntry != null) {
-            PhotoPickerActivity fragment = new PhotoPickerActivity(type, albumEntry, selectedPhotos, selectedPhotosOrder, null, selectPhotoType, allowCaption, chatActivity);
+            PhotoPickerActivity fragment = new PhotoPickerActivity(type, albumEntry, selectedPhotos, selectedPhotosOrder, selectPhotoType, allowCaption, chatActivity);
             fragment.setCaption(caption = commentTextView.getText());
             fragment.setDelegate(new PhotoPickerActivity.PhotoPickerActivityDelegate() {
                 @Override
@@ -771,7 +784,7 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
             final HashMap<Object, Object> photos = new HashMap<>();
             final ArrayList<Object> order = new ArrayList<>();
             if (allowGifs) {
-                PhotoPickerSearchActivity fragment = new PhotoPickerSearchActivity(photos, order, null, selectPhotoType, allowCaption, chatActivity);
+                PhotoPickerSearchActivity fragment = new PhotoPickerSearchActivity(photos, order, selectPhotoType, allowCaption, chatActivity);
                 fragment.setCaption(caption = commentTextView.getText());
                 fragment.setDelegate(new PhotoPickerActivity.PhotoPickerActivityDelegate() {
                     @Override
@@ -795,7 +808,7 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
                 fragment.setMaxSelectedPhotos(maxSelectedPhotos, allowOrder);
                 presentFragment(fragment);
             } else {
-                PhotoPickerActivity fragment = new PhotoPickerActivity(0, albumEntry, photos, order, null, selectPhotoType, allowCaption, chatActivity);
+                PhotoPickerActivity fragment = new PhotoPickerActivity(0, albumEntry, photos, order, selectPhotoType, allowCaption, chatActivity);
                 fragment.setCaption(caption = commentTextView.getText());
                 fragment.setDelegate(new PhotoPickerActivity.PhotoPickerActivityDelegate() {
                     @Override

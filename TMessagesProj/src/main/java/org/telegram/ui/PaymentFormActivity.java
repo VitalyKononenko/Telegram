@@ -19,6 +19,7 @@ import android.app.Dialog;
 import android.app.FragmentManager;
 import android.app.FragmentTransaction;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -183,6 +184,8 @@ public class PaymentFormActivity extends BaseFragment implements NotificationCen
     private String webViewUrl;
     private boolean shouldNavigateBack;
     private ScrollView scrollView;
+
+    private boolean swipeBackEnabled = true;
 
     private TextView textView;
     private HeaderCell[] headerCell = new HeaderCell[3];
@@ -1957,10 +1960,15 @@ public class PaymentFormActivity extends BaseFragment implements NotificationCen
                     text += "\n\n" + LocaleController.getString("TurnPasswordOffPassport", R.string.TurnPasswordOffPassport);
                 }
                 builder.setMessage(text);
-                builder.setTitle(LocaleController.getString("AppName", R.string.AppName));
-                builder.setPositiveButton(LocaleController.getString("OK", R.string.OK), (dialogInterface, i) -> sendSavePassword(true));
+                builder.setTitle(LocaleController.getString("TurnPasswordOffQuestionTitle", R.string.TurnPasswordOffQuestionTitle));
+                builder.setPositiveButton(LocaleController.getString("Disable", R.string.Disable), (dialogInterface, i) -> sendSavePassword(true));
                 builder.setNegativeButton(LocaleController.getString("Cancel", R.string.Cancel), null);
-                showDialog(builder.create());
+                AlertDialog alertDialog = builder.create();
+                showDialog(alertDialog);
+                TextView button = (TextView) alertDialog.getButton(DialogInterface.BUTTON_POSITIVE);
+                if (button != null) {
+                    button.setTextColor(Theme.getColor(Theme.key_dialogTextRed2));
+                }
             });
 
             inputFields = new EditTextBoldCursor[FIELDS_COUNT_PASSWORD];
@@ -3037,13 +3045,19 @@ public class PaymentFormActivity extends BaseFragment implements NotificationCen
                     AndroidUtilities.runOnUIThread(() -> {
                         NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.paymentFinished);
                         setDonePressed(false);
-                        webView.setVisibility(View.VISIBLE);
                         webviewLoading = true;
                         showEditDoneProgress(true, true);
-                        progressView.setVisibility(View.VISIBLE);
-                        doneItem.setEnabled(false);
-                        doneItem.getContentView().setVisibility(View.INVISIBLE);
-                        webView.loadUrl(webViewUrl = ((TLRPC.TL_payments_paymentVerificationNeeded) response).url);
+                        if (progressView != null) {
+                            progressView.setVisibility(View.VISIBLE);
+                        }
+                        if (doneItem != null) {
+                            doneItem.setEnabled(false);
+                            doneItem.getContentView().setVisibility(View.INVISIBLE);
+                        }
+                        if (webView != null) {
+                            webView.setVisibility(View.VISIBLE);
+                            webView.loadUrl(webViewUrl = ((TLRPC.TL_payments_paymentVerificationNeeded) response).url);
+                        }
                     });
                 }
             } else {
@@ -3071,10 +3085,17 @@ public class PaymentFormActivity extends BaseFragment implements NotificationCen
     private void setDonePressed(boolean value) {
         donePressed = value;
         swipeBackEnabled = !value;
-        actionBar.getBackButton().setEnabled(!donePressed);
+        if (actionBar != null) {
+            actionBar.getBackButton().setEnabled(!donePressed);
+        }
         if (detailSettingsCell[0] != null) {
             detailSettingsCell[0].setEnabled(!donePressed);
         }
+    }
+
+    @Override
+    public boolean isSwipeBackEnabled(MotionEvent event) {
+        return swipeBackEnabled;
     }
 
     private void checkPassword() {

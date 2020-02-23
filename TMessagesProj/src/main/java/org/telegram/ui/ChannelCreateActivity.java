@@ -28,7 +28,6 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
-import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -45,6 +44,7 @@ import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
+import org.telegram.messenger.SharedConfig;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.ActionBar;
@@ -89,7 +89,8 @@ public class ChannelCreateActivity extends BaseFragment implements NotificationC
     private TLRPC.FileLocation avatarBig;
     private String nameToSet;
     private LinearLayout linearLayout2;
-    private EditText editText;
+    private HeaderCell headerCell2;
+    private EditTextBoldCursor editText;
 
     private LinearLayout linearLayout;
     private LinearLayout adminnedChannelsLayout;
@@ -252,7 +253,7 @@ public class ChannelCreateActivity extends BaseFragment implements NotificationC
                         if (!isPrivate) {
                             if (descriptionTextView.length() == 0) {
                                 AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
-                                builder.setTitle(LocaleController.getString("AppName", R.string.AppName));
+                                builder.setTitle(LocaleController.getString("ChannelPublicEmptyUsernameTitle", R.string.ChannelPublicEmptyUsernameTitle));
                                 builder.setMessage(LocaleController.getString("ChannelPublicEmptyUsername", R.string.ChannelPublicEmptyUsername));
                                 builder.setPositiveButton(LocaleController.getString("Close", R.string.Close), null);
                                 showDialog(builder.create());
@@ -286,7 +287,7 @@ public class ChannelCreateActivity extends BaseFragment implements NotificationC
         if (currentStep == 0) {
             actionBar.setTitle(LocaleController.getString("NewChannel", R.string.NewChannel));
 
-            SizeNotifierFrameLayout sizeNotifierFrameLayout = new SizeNotifierFrameLayout(context) {
+            SizeNotifierFrameLayout sizeNotifierFrameLayout = new SizeNotifierFrameLayout(context, SharedConfig.smoothKeyboard) {
 
                 private boolean ignoreLayout;
 
@@ -300,7 +301,7 @@ public class ChannelCreateActivity extends BaseFragment implements NotificationC
 
                     measureChildWithMargins(actionBar, widthMeasureSpec, 0, heightMeasureSpec, 0);
 
-                    int keyboardSize = getKeyboardHeight();
+                    int keyboardSize = SharedConfig.smoothKeyboard ? 0 : getKeyboardHeight();
                     if (keyboardSize > AndroidUtilities.dp(20)) {
                         ignoreLayout = true;
                         nameTextView.hideEmojiView();
@@ -333,7 +334,8 @@ public class ChannelCreateActivity extends BaseFragment implements NotificationC
                 protected void onLayout(boolean changed, int l, int t, int r, int b) {
                     final int count = getChildCount();
 
-                    int paddingBottom = getKeyboardHeight() <= AndroidUtilities.dp(20) && !AndroidUtilities.isInMultiwindow && !AndroidUtilities.isTablet() ? nameTextView.getEmojiPadding() : 0;
+                    int keyboardSize = SharedConfig.smoothKeyboard ? 0 : getKeyboardHeight();
+                    int paddingBottom = keyboardSize <= AndroidUtilities.dp(20) && !AndroidUtilities.isInMultiwindow && !AndroidUtilities.isTablet() ? nameTextView.getEmojiPadding() : 0;
                     setBottomClip(paddingBottom);
 
                     for (int i = 0; i < count; i++) {
@@ -387,7 +389,7 @@ public class ChannelCreateActivity extends BaseFragment implements NotificationC
                             if (AndroidUtilities.isTablet()) {
                                 childTop = getMeasuredHeight() - child.getMeasuredHeight();
                             } else {
-                                childTop = getMeasuredHeight() + getKeyboardHeight() - child.getMeasuredHeight();
+                                childTop = getMeasuredHeight() + keyboardSize - child.getMeasuredHeight();
                             }
                         }
                         child.layout(childLeft, childTop, childLeft + width, childTop + height);
@@ -551,9 +553,15 @@ public class ChannelCreateActivity extends BaseFragment implements NotificationC
             linearLayout.setOrientation(LinearLayout.VERTICAL);
             scrollView.addView(linearLayout, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-            actionBar.setTitle(LocaleController.getString("ChannelSettings", R.string.ChannelSettings));
+            actionBar.setTitle(LocaleController.getString("ChannelSettingsTitle", R.string.ChannelSettingsTitle));
             fragmentView.setTag(Theme.key_windowBackgroundGray);
             fragmentView.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundGray));
+
+            headerCell2 = new HeaderCell(context, 23);
+            headerCell2.setHeight(46);
+            headerCell2.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
+            headerCell2.setText(LocaleController.getString("ChannelTypeHeader", R.string.ChannelTypeHeader));
+            linearLayout.addView(headerCell2);
 
             linearLayout2 = new LinearLayout(context);
             linearLayout2.setOrientation(LinearLayout.VERTICAL);
@@ -599,7 +607,7 @@ public class ChannelCreateActivity extends BaseFragment implements NotificationC
             publicContainer.setOrientation(LinearLayout.HORIZONTAL);
             linkContainer.addView(publicContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 36, 17, 7, 17, 0));
 
-            editText = new EditText(context);
+            editText = new EditTextBoldCursor(context);
             editText.setText(MessagesController.getInstance(currentAccount).linkPrefix + "/");
             editText.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 18);
             editText.setHintTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteHintText));
@@ -843,7 +851,9 @@ public class ChannelCreateActivity extends BaseFragment implements NotificationC
 
     @Override
     public void onActivityResultFragment(int requestCode, int resultCode, Intent data) {
-        imageUpdater.onActivityResult(requestCode, resultCode, data);
+        if (imageUpdater != null) {
+            imageUpdater.onActivityResult(requestCode, resultCode, data);
+        }
     }
 
     @Override
@@ -881,6 +891,7 @@ public class ChannelCreateActivity extends BaseFragment implements NotificationC
     @Override
     public void onTransitionAnimationEnd(boolean isOpen, boolean backward) {
         if (isOpen && currentStep != 1) {
+            nameTextView.requestFocus();
             nameTextView.openKeyboard();
         }
     }
@@ -1117,6 +1128,7 @@ public class ChannelCreateActivity extends BaseFragment implements NotificationC
                 new ThemeDescription(linkContainer, ThemeDescription.FLAG_BACKGROUND, null, null, null, null, Theme.key_windowBackgroundWhite),
                 new ThemeDescription(sectionCell, ThemeDescription.FLAG_BACKGROUNDFILTER, null, null, null, null, Theme.key_windowBackgroundGrayShadow),
                 new ThemeDescription(headerCell, 0, new Class[]{HeaderCell.class}, new String[]{"textView"}, null, null, null, Theme.key_windowBackgroundWhiteBlueHeader),
+                new ThemeDescription(headerCell2, 0, new Class[]{HeaderCell.class}, new String[]{"textView"}, null, null, null, Theme.key_windowBackgroundWhiteBlueHeader),
                 new ThemeDescription(editText, ThemeDescription.FLAG_TEXTCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteBlackText),
                 new ThemeDescription(editText, ThemeDescription.FLAG_HINTTEXTCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteHintText),
                 new ThemeDescription(checkTextView, ThemeDescription.FLAG_TEXTCOLOR | ThemeDescription.FLAG_CHECKTAG, null, null, null, null, Theme.key_windowBackgroundWhiteRedText4),

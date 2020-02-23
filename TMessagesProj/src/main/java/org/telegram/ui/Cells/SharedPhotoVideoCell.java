@@ -176,10 +176,7 @@ public class SharedPhotoVideoCell extends FrameLayout {
             imageView.getImageReceiver().setVisible(!PhotoViewer.isShowingImage(messageObject), false);
             if (messageObject.isVideo()) {
                 videoInfoContainer.setVisibility(VISIBLE);
-                int duration = messageObject.getDuration();
-                int minutes = duration / 60;
-                int seconds = duration - minutes * 60;
-                videoTextView.setText(String.format("%d:%02d", minutes, seconds));
+                videoTextView.setText(AndroidUtilities.formatShortDuration(messageObject.getDuration()));
                 TLRPC.Document document = messageObject.getDocument();
                 TLRPC.PhotoSize thumb = FileLoader.getClosestPhotoSizeWithSize(document.thumbs, 50);
                 TLRPC.PhotoSize qualityThumb = FileLoader.getClosestPhotoSizeWithSize(document.thumbs, 320);
@@ -274,6 +271,24 @@ public class SharedPhotoVideoCell extends FrameLayout {
         }
     }
 
+    @Override
+    public void invalidate() {
+        for (int a = 0; a < 6; a++) {
+            photoVideoViews[a].invalidate();
+        }
+        super.invalidate();
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+    }
+
     public void setDelegate(SharedPhotoVideoCellDelegate delegate) {
         this.delegate = delegate;
     }
@@ -332,12 +347,7 @@ public class SharedPhotoVideoCell extends FrameLayout {
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        int itemWidth;
-        if (AndroidUtilities.isTablet()) {
-            itemWidth = (AndroidUtilities.dp(490) - (itemsCount - 1) * AndroidUtilities.dp(2)) / itemsCount;
-        } else {
-            itemWidth = (AndroidUtilities.displaySize.x - (itemsCount - 1) * AndroidUtilities.dp(2)) / itemsCount;
-        }
+        final int itemWidth = getItemSize(itemsCount);
 
         ignoreLayout = true;
         for (int a = 0; a < itemsCount; a++) {
@@ -360,5 +370,15 @@ public class SharedPhotoVideoCell extends FrameLayout {
         ignoreLayout = false;
 
         super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec((isFirst ? 0 : AndroidUtilities.dp(2)) + itemWidth, MeasureSpec.EXACTLY));
+    }
+
+    public static int getItemSize(int itemsCount) {
+        final int itemWidth;
+        if (AndroidUtilities.isTablet()) {
+            itemWidth = (AndroidUtilities.dp(490) - (itemsCount - 1) * AndroidUtilities.dp(2)) / itemsCount;
+        } else {
+            itemWidth = (AndroidUtilities.displaySize.x - (itemsCount - 1) * AndroidUtilities.dp(2)) / itemsCount;
+        }
+        return itemWidth;
     }
 }
